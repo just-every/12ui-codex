@@ -2,19 +2,31 @@
 
 Standalone local design workflow for Codex.
 
-`@12ui/codex-design` installs a local browser app and a Codex `$design` skill. Codex uses the app to generate UI design options, opens the returned URL in the Codex in-app browser, waits while the user chooses a design, then continues from the selected 12ui handover.
+`@12ui/codex-design` installs a local browser app and the `12ui Design` Codex plugin. Codex uses the app to generate UI design options, opens the returned URL in the Codex in-app browser, waits while the user chooses a design, then continues from the selected 12ui handover.
 
 ## Install
+
+Install the local app, `codex-design` launcher, `12ui Design` plugin, and plain `$design` skill:
 
 ```bash
 npx -y @12ui/codex-design install
 ```
 
+You can also add the public plugin marketplace entry:
+
+```bash
+codex plugin marketplace add just-every/12ui-codex
+```
+
+`codex plugin marketplace add` registers the marketplace with Codex. It does not run the npm installer or create the plain `$design` skill by itself in current Codex builds, so use the `npx` installer for the full setup.
+
 The installer:
 
 - installs the local `codex-design` launcher
-- installs the `$design` skill at `~/.codex/skills/design/SKILL.md`
-- installs Codex skill UI metadata at `~/.codex/skills/design/agents/openai.yaml`
+- installs and enables the `12ui Design` Codex plugin
+- installs the plugin marketplace under `~/.local/share/12ui/codex-design/marketplace`
+- installs the `$design` skill at `~/.agents/skills/design/SKILL.md` for Codex skill autocomplete
+- removes the old loose `~/.codex/skills/design` skill install if present
 
 ## Default workflow
 

@@ -12,12 +12,3 @@ export const baseCreateGuidance = [
   'Avoid visual clutter: no random floating decoration, no generic SaaS card piles, no illegible microtext, and no one-note color palette. Use restrained accents that serve selection, status, and primary actions.',
   'Make the result feel like a real interface ready for implementation and 12ui conversion.',
 ].join('\n');
-
-export const plannerGuidance = [
-  'Before writing branch prompts, inspect every attached image and infer the intended layout, major zones, visual density, and any reusable assets.',
-  'Order the branches by creative distance: branch 1 should be the straight, faithful interpretation of the prompt; each later branch should become progressively more creative, inventive, and unexpected while still solving the same user goal.',
-  'Make the increasing creativity come from interaction model, composition, spatial metaphor, workflow, or visual system, not just color or copy changes.',
-  'Each branch prompt must be directly usable by an image generation model with the same sketch/reference images attached.',
-  'Each branch prompt must restate the key visual constraints from the sketch/assets so image generation remains grounded even if the generated image model weighs text more strongly than image context.',
-  'Call out full-bleed framing, text-size discipline, spacing rhythm, and overlap avoidance when relevant to the prompt.',
-].join('\n');

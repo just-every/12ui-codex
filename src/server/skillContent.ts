@@ -9,15 +9,39 @@ Use the local 12ui Codex Design app to generate visual UI options, let the user 
 
 Never use mock design data or fallback handovers. If the local server, design generation, selection, or handover fails, surface the real failure.
 
-## Default flow: single handover
+## No-prompt flow: open the app
 
-1. Ensure the local server is running:
+Use this when the user invokes \`$design\` with no prompt, or only asks to open, launch, or show the 12ui Codex Design app.
+
+1. Ensure the local CLI is installed. If \`codex-design\` is not available on PATH, install it first:
+
+\`\`\`bash
+npx -y @12ui/codex-design install
+\`\`\`
+
+2. Launch or reuse the local server:
 
 \`\`\`bash
 codex-design launch --json
 \`\`\`
 
-2. Create a design workspace. Default to 3 seed designs unless the user asks for 1, 6, or 12:
+3. Open the returned \`browserUrl\` in the Codex in-app browser immediately and repeat the URL to the user. Do not create a workspace and do not invent a design prompt.
+
+## Default flow: single handover
+
+1. Ensure the local CLI is installed. If \`codex-design\` is not available on PATH, install it first:
+
+\`\`\`bash
+npx -y @12ui/codex-design install
+\`\`\`
+
+2. Ensure the local server is running:
+
+\`\`\`bash
+codex-design launch --json
+\`\`\`
+
+3. Create a design workspace. Default to 3 seed designs unless the user asks for 1, 6, or 12:
 
 \`\`\`bash
 cat <<'JSON' | codex-design create --json
@@ -30,23 +54,23 @@ cat <<'JSON' | codex-design create --json
 JSON
 \`\`\`
 
-3. Open the returned \`browserUrl\` or \`workspaceUrl\` in the Codex in-app browser immediately. If the in-app browser is not already open, create/open an in-app browser tab and navigate to that URL. Also show the link to the user.
+4. Open the returned \`browserUrl\` or \`workspaceUrl\` in the Codex in-app browser immediately. If the in-app browser is not already open, create/open an in-app browser tab and navigate to that URL. Also show the link to the user.
 
 Every CLI response that includes a \`browserUrl\`, \`workspaceUrl\`, \`handoverHtmlUrl\`, \`handoverUrl\`, \`zipUrl\`, or \`userMessage\` is user-facing. Open \`browserUrl\`/workspace URLs in the Codex in-app browser and repeat the useful URL/message back to the user instead of keeping it only in tool output.
 
-4. Wait for the user to select a design:
+5. Wait for the user to select a design:
 
 \`\`\`bash
 codex-design wait --workspace <workspaceId> --event seed_design_selected --timeout-ms 1800000
 \`\`\`
 
-5. Tell the user the selected design was detected and ask them to click Handover in the browser. Then wait for completion:
+6. Tell the user the selected design was detected and ask them to click Handover in the browser. Then wait for completion:
 
 \`\`\`bash
 codex-design wait --workspace <workspaceId> --event handover_completed,handover_failed --timeout-ms 1800000
 \`\`\`
 
-6. If handover completed, use the returned \`handoverHtmlUrl\`, \`handoverUrl\`, and \`zipUrl\` as the source of truth for implementation. Do not start from a blank page.
+7. If handover completed, use the returned \`handoverHtmlUrl\`, \`handoverUrl\`, and \`zipUrl\` as the source of truth for implementation. Do not start from a blank page.
 
 ## Advanced flow: workspace pages
 

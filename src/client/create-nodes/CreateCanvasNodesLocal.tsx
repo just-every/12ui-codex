@@ -6,24 +6,9 @@ import { SketchDraftLoadingDots } from '../create-ui/pages/sketch-result/SketchD
 import { SketchProgressBar } from '../create-ui/pages/sketch-result/SketchProgressBar';
 import { runAssetUrl } from '../api.js';
 import { cn } from '../lib/cn.js';
+import { buildCreatePendingProgressSnapshot } from './createPendingProgress.js';
 import { PagePlanDockControl } from './PagePlanDockControl.js';
 import type { ConnectionState, ExportNodeActions, RunMap } from './types.js';
-
-const resolvePendingVariationStage = (run: DesignRun, latestEvent: DesignRun['events'][number] | null): string => {
-  if (run.status === 'queued' || latestEvent?.type === 'queued') {
-    return 'Queued';
-  }
-  if (latestEvent?.type === 'planning' || latestEvent?.type === 'planned') {
-    return latestEvent.type === 'planned' ? 'Planning complete' : 'Planning concept';
-  }
-  if (latestEvent?.type === 'generating' || latestEvent?.type === 'generated') {
-    return latestEvent.type === 'generated' ? 'Finalizing preview' : 'Rendering image';
-  }
-  if (latestEvent?.type === 'handover') {
-    return 'Preparing handoff';
-  }
-  return run.status === 'running' ? 'Planning concept' : 'Queued';
-};
 
 const resolveDesignDownloadFilename = (design: DesignOutput): string => {
   const base = (design.title || `design-${design.branchIndex}`)
@@ -228,15 +213,20 @@ export function CreatePendingVariationCanvasNodeLocal(args: {
   run: DesignRun;
   title: string;
 }) {
-  const latestEvent = [...args.run.events].reverse().find((event) => (
-    event.type === 'generating'
-    || event.type === 'generated'
-    || event.type === 'planned'
-    || event.type === 'planning'
-    || event.type === 'queued'
-  )) ?? null;
-  const progress = Math.max(0.04, Math.min(0.98, args.run.progress || latestEvent?.progress || 0.04));
-  const stage = resolvePendingVariationStage(args.run, latestEvent);
+  const [nowMs, setNowMs] = React.useState(() => Date.now());
+  const progressSnapshot = buildCreatePendingProgressSnapshot({
+    run: args.run,
+    nowMs,
+  });
+
+  React.useEffect(() => {
+    if (args.run.status !== 'queued' && args.run.status !== 'running') return undefined;
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [args.run.status, args.run.id]);
 
   return (
     <div className="relative h-full" data-testid={`create-pending-variation-${args.title}`}>
@@ -249,14 +239,14 @@ export function CreatePendingVariationCanvasNodeLocal(args: {
           className="h-full w-full rounded-[18px]"
         />
       </div>
-      <div className="absolute left-0 right-0 top-full mt-4 flex flex-col gap-2 px-1">
-        <SketchProgressBar value={progress} />
+      <div className="absolute left-0 right-0 top-full mt-4 flex flex-col gap-2">
+        <SketchProgressBar value={progressSnapshot.progress} />
         <div className="flex items-center justify-between gap-4">
           <Text className="min-w-0 flex-1 truncate text-[12px] font-medium leading-5 text-black/52">
-            {stage}
+            {progressSnapshot.stageLabel}
           </Text>
           <Text className="shrink-0 text-[12px] font-medium leading-5 text-black/34">
-            {Math.round(progress * 100)}%
+            {progressSnapshot.etaLabel}
           </Text>
         </div>
       </div>

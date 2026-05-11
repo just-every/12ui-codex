@@ -41,49 +41,27 @@ const pickerSchema = (candidateIds: string[]): ResponseJSONSchema => ({
   },
 });
 
-const batchPrompt = (request: DirectCreateHandoverRequest, batchIndex: number, batchCount: number): string => {
-  if (batchCount === 1) return request.prompt;
-  return [
-    request.prompt,
-    `Generate batch ${batchIndex + 1} of ${batchCount}. Make these directions meaningfully different from the other batches while staying faithful to the prompt and sketch.`,
-  ].join('\n\n');
-};
-
-const batchSizesForCount = (count: number): number[] => {
-  const sizes: number[] = [];
-  let remaining = count;
-  while (remaining > 0) {
-    const next = Math.min(3, remaining);
-    sizes.push(next);
-    remaining -= next;
-  }
-  return sizes;
-};
-
-const createCompletedBatch = async (
+const createCompletedRun = async (
   request: DirectCreateHandoverRequest,
-  batchSize: number,
-  batchIndex: number,
-  batchCount: number,
 ): Promise<DesignRun> => {
   const runRequest = {
-    prompt: batchPrompt(request, batchIndex, batchCount),
+    prompt: request.prompt,
     sketchDataUrl: request.sketchDataUrl,
     referenceDataUrls: request.referenceDataUrls,
-    batchSize,
+    batchSize: request.designCount,
     aspect: request.aspect,
     quality: request.quality,
   };
   const run = await createRunRecord(runRequest);
   await addRunEvent(run.id, {
     type: 'queued',
-    message: `Direct workflow batch ${batchIndex + 1} of ${batchCount} queued.`,
+    message: 'Direct workflow generation queued.',
     progress: 0,
   });
   await startGeneration(run.id, runRequest);
   const completed = await readRun(run.id);
   if (completed.status !== 'completed') {
-    throw new Error(completed.error || `Batch ${batchIndex + 1} ended with ${completed.status}.`);
+    throw new Error(completed.error || `Direct workflow generation ended with ${completed.status}.`);
   }
   return completed;
 };
@@ -171,11 +149,7 @@ export const pickDesignForHandover = async (
 export const runDirectCreateHandover = async (
   request: DirectCreateHandoverRequest,
 ): Promise<DirectCreateHandoverResult> => {
-  const batchSizes = batchSizesForCount(request.designCount);
-  const runs: DesignRun[] = [];
-  for (const [index, batchSize] of batchSizes.entries()) {
-    runs.push(await createCompletedBatch(request, batchSize, index, batchSizes.length));
-  }
+  const runs = [await createCompletedRun(request)];
   const candidates = collectCandidates(runs);
   if (candidates.length !== request.designCount) {
     throw new Error(`Direct workflow generated ${candidates.length} designs; expected ${request.designCount}.`);

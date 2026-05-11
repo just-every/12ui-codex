@@ -1,0 +1,20 @@
+{
+  "name": "12ui",
+  "interface": {
+    "displayName": "12ui"
+  },
+  "plugins": [
+    {
+      "name": "12ui-design",
+      "source": {
+        "source": "local",
+        "path": "./plugins/12ui-design"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    }
+  ]
+}

@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { DESIGN_AGENT_OPENAI_YAML, DESIGN_SKILL_MARKDOWN } from './skillContent.js';
 import { packageName, resolveInstallPaths } from './installPaths.js';
 import { projectRoot } from './config.js';
+import { installDesignPlugin } from './pluginInstaller.js';
+import { DESIGN_PLUGIN_KEY } from './pluginContent.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +31,9 @@ export const installCodexDesign = async (): Promise<{
   version: string;
   installRoot: string;
   launcherPath: string;
+  marketplacePath: string;
+  pluginKey: string;
+  pluginPath: string;
   skillPath: string;
 }> => {
   const version = await packageVersion();
@@ -44,15 +48,15 @@ export const installCodexDesign = async (): Promise<{
   ], { timeout: 180_000 });
   await mkdir(paths.launcherDir, { recursive: true });
   await writeLauncher(paths.launcherPath, paths.installedBinPath);
-  await mkdir(paths.codexSkillDir, { recursive: true });
-  await mkdir(paths.codexAgentDir, { recursive: true });
-  await writeFile(paths.codexSkillPath, DESIGN_SKILL_MARKDOWN, 'utf8');
-  await writeFile(paths.codexAgentPath, DESIGN_AGENT_OPENAI_YAML, 'utf8');
+  await installDesignPlugin(paths, version);
   return {
     packageName,
     version,
     installRoot: paths.installRoot,
     launcherPath: paths.launcherPath,
-    skillPath: paths.codexSkillPath,
+    marketplacePath: paths.pluginMarketplacePath,
+    pluginKey: DESIGN_PLUGIN_KEY,
+    pluginPath: paths.pluginManifestPath,
+    skillPath: paths.userSkillPath,
   };
 };

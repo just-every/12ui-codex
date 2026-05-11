@@ -67,20 +67,35 @@ export const readRun = async (runId: string): Promise<DesignRun> => {
   const run = JSON.parse(raw) as DesignRun;
   if (Array.isArray(run.plannedDesigns)) return run;
   try {
-    const rawBranchPrompts = await readFile(path.join(runDir(runId), 'branch-prompts.json'), 'utf8');
-    const branchPrompts = JSON.parse(rawBranchPrompts) as Array<{ title?: unknown; prompt?: unknown }>;
+    const rawDesignPrompts = await readFile(path.join(runDir(runId), 'design-prompts.json'), 'utf8');
+    const designPrompts = JSON.parse(rawDesignPrompts) as Array<{ branchIndex?: unknown; title?: unknown; prompt?: unknown }>;
     return {
       ...run,
-      plannedDesigns: Array.isArray(branchPrompts)
-        ? branchPrompts.map((branch, index) => ({
-          branchIndex: index + 1,
-          title: typeof branch.title === 'string' ? branch.title : `Design ${index + 1}`,
-          prompt: typeof branch.prompt === 'string' ? branch.prompt : '',
+      plannedDesigns: Array.isArray(designPrompts)
+        ? designPrompts.map((designPrompt, index) => ({
+          branchIndex: typeof designPrompt.branchIndex === 'number' ? designPrompt.branchIndex : index + 1,
+          title: typeof designPrompt.title === 'string' ? designPrompt.title : `Design ${index + 1}`,
+          prompt: typeof designPrompt.prompt === 'string' ? designPrompt.prompt : '',
         }))
         : [],
     };
   } catch {
-    return { ...run, plannedDesigns: [] };
+    try {
+      const rawBranchPrompts = await readFile(path.join(runDir(runId), 'branch-prompts.json'), 'utf8');
+      const branchPrompts = JSON.parse(rawBranchPrompts) as Array<{ title?: unknown; prompt?: unknown }>;
+      return {
+        ...run,
+        plannedDesigns: Array.isArray(branchPrompts)
+          ? branchPrompts.map((branch, index) => ({
+            branchIndex: index + 1,
+            title: typeof branch.title === 'string' ? branch.title : `Design ${index + 1}`,
+            prompt: typeof branch.prompt === 'string' ? branch.prompt : '',
+          }))
+          : [],
+      };
+    } catch {
+      return { ...run, plannedDesigns: [] };
+    }
   }
 };
 

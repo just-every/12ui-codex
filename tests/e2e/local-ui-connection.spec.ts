@@ -347,7 +347,7 @@ test('shows pending seed variation loading panels for an active run', async ({ p
   await expect(page.getByTestId('create-pending-variation-Faithful Moonrise Hero')).not.toContainText('Creating design');
   await expect(page.getByTestId('create-pending-variation-Faithful Moonrise Hero')).not.toContainText('Generating first concept.');
   await expect(page.getByText('Rendering image').first()).toBeVisible();
-  await expect(page.getByText('34%').first()).toBeVisible();
+  await expect(page.getByText(/remaining|almost ready/).first()).toBeVisible();
   await page.waitForFunction(() => {
     const panel = document.querySelector('[data-testid="create-pending-variation-Faithful Moonrise Hero"]');
     if (!panel) return false;
