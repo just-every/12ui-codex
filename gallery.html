@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex 12ui Design Gallery</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f5f2;
+        --panel: #ffffff;
+        --ink: #171717;
+        --muted: #676b73;
+        --line: #d9d7d2;
+        --blue: #2f6feb;
+        --green: #278557;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        line-height: 1.4;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--line);
+        background: rgba(246, 245, 242, 0.94);
+        backdrop-filter: blur(16px);
+      }
+
+      .header-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 14px 16px 12px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        font-weight: 720;
+        letter-spacing: 0;
+      }
+
+      nav {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+
+      nav a,
+      .open-link {
+        display: inline-flex;
+        min-height: 36px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 650;
+        padding: 8px 11px;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 18px 12px 48px;
+      }
+
+      section {
+        margin: 0 0 28px;
+        scroll-margin-top: 86px;
+      }
+
+      .section-head {
+        padding: 0 4px 10px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 17px;
+        letter-spacing: 0;
+      }
+
+      .note {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 12px 34px rgba(23, 23, 23, 0.06);
+      }
+
+      .card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding: 12px;
+      }
+
+      h3 {
+        margin: 0;
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+
+      .meta {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .badge {
+        border: 1px solid rgba(39, 133, 87, 0.35);
+        border-radius: 999px;
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 720;
+        padding: 4px 8px;
+        white-space: nowrap;
+      }
+
+      .badge.blue {
+        border-color: rgba(47, 111, 235, 0.35);
+        color: var(--blue);
+      }
+
+      .image-link {
+        display: block;
+        background: #ebe9e3;
+      }
+
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .details {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px 12px;
+      }
+
+      .run {
+        color: var(--muted);
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+
+      @media (min-width: 760px) {
+        .grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .wide {
+          max-width: 420px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <h1>Codex 12ui Design Gallery</h1>
+        <nav aria-label="Design batches">
+          <a href="#parent">Parent</a>
+          <a href="#cutroom">Cutroom variants</a>
+          <a href="#command">Command variants</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section id="parent">
+        <div class="section-head">
+          <h2>Parent Direction</h2>
+          <p class="note">The option 3 direction that led to the current branch.</p>
+        </div>
+        <div class="grid">
+          <article class="card wide">
+            <div class="card-head">
+              <div>
+                <h3>Spatial Notebook Cutroom</h3>
+                <p class="meta">Selected from creative cross-domain batch</p>
+              </div>
+              <span class="badge">selected</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/f04168b4-3cb4-425c-a394-fb2d814e402f/assets/design-3.png"
+            >
+              <img
+                src=".runs/f04168b4-3cb4-425c-a394-fb2d814e402f/assets/design-3.png"
+                alt="Spatial Notebook Cutroom"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">f04168b4 / design-3</span>
+              <a
+                class="open-link"
+                href=".runs/f04168b4-3cb4-425c-a394-fb2d814e402f/assets/design-3.png"
+                >Open</a
+              >
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="cutroom">
+        <div class="section-head">
+          <h2>Spatial Notebook Cutroom Variants</h2>
+          <p class="note">Codex-colour variants made from the parent direction.</p>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h3>Notebook Editor Cutroom</h3>
+                <p class="meta">Notebook/editor first</p>
+              </div>
+              <span class="badge blue">variant</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-1.png"
+            >
+              <img
+                src=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-1.png"
+                alt="Notebook Editor Cutroom"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">07dac282 / design-1</span>
+              <a
+                class="open-link"
+                href=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-1.png"
+                >Open</a
+              >
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h3>Spatial Canvas Cutroom</h3>
+                <p class="meta">Spatial canvas first</p>
+              </div>
+              <span class="badge">selected</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-2.png"
+            >
+              <img
+                src=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-2.png"
+                alt="Spatial Canvas Cutroom"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">07dac282 / design-2</span>
+              <a
+                class="open-link"
+                href=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-2.png"
+                >Open</a
+              >
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h3>Command Workflow Cutroom</h3>
+                <p class="meta">Command workflow first</p>
+              </div>
+              <span class="badge blue">variant</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-3.png"
+            >
+              <img
+                src=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-3.png"
+                alt="Command Workflow Cutroom"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">07dac282 / design-3</span>
+              <a
+                class="open-link"
+                href=".runs/07dac282-a899-4233-9bfa-12d079e2a1f8/assets/design-3.png"
+                >Open</a
+              >
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="command">
+        <div class="section-head">
+          <h2>Command Workflow Variants</h2>
+          <p class="note">Immediate descendants of the command-workflow direction.</p>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h3>Command Palette First</h3>
+                <p class="meta">Command bar as focal layer</p>
+              </div>
+              <span class="badge blue">variant</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-1.png"
+            >
+              <img
+                src=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-1.png"
+                alt="Command Palette First"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">bf65d630 / design-1</span>
+              <a
+                class="open-link"
+                href=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-1.png"
+                >Open</a
+              >
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h3>Inspector Status First</h3>
+                <p class="meta">Run inspector/status first</p>
+              </div>
+              <span class="badge">selected</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-2.png"
+            >
+              <img
+                src=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-2.png"
+                alt="Inspector Status First"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">bf65d630 / design-2</span>
+              <a
+                class="open-link"
+                href=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-2.png"
+                >Open</a
+              >
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h3>Timeline Workflow First</h3>
+                <p class="meta">Timeline/workflow first</p>
+              </div>
+              <span class="badge blue">variant</span>
+            </div>
+            <a
+              class="image-link"
+              href=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-3.png"
+            >
+              <img
+                src=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-3.png"
+                alt="Timeline Workflow First"
+                loading="lazy"
+              />
+            </a>
+            <div class="details">
+              <span class="run">bf65d630 / design-3</span>
+              <a
+                class="open-link"
+                href=".runs/bf65d630-7a49-4b2a-acce-53e0eef54860/assets/design-3.png"
+                >Open</a
+              >
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

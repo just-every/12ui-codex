@@ -1,0 +1,47 @@
+{
+  "name": "@12ui/codex-design",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local 12ui Codex Design app and Codex skill installer",
+  "main": "dist/server/server/index.js",
+  "bin": {
+    "codex-design": "dist/server/server/cli.js"
+  },
+  "files": [
+    "dist/**/*",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/server/index.ts",
+    "start": "NODE_ENV=production node dist/server/server/index.js",
+    "build": "rm -rf dist/client dist/server && vite build && tsc -p tsconfig.server.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "smoke:live": "tsx src/server/liveSmoke.ts",
+    "create:handover": "tsx src/server/directCreateHandoverCli.ts"
+  },
+  "dependencies": {
+    "@just-every/ensemble": "0.2.235",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "clsx": "^2.1.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-native": "^0.85.3",
+    "react-native-web": "^0.21.2",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.3.0",
+    "vite": "^6.0.11"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
+  }
+}
