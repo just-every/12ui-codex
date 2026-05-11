@@ -1,11 +1,21 @@
 import React from 'react';
-import type { DesignAspect, DesignQuality, DirectDesignCount } from '../../shared/types.js';
+import type {
+  DesignAspect,
+  DesignCreativityMode,
+  DesignQuality,
+  DirectDesignCount,
+} from '../../shared/types.js';
 
 const DESIGN_COUNT_OPTIONS: DirectDesignCount[] = [1, 3, 6, 12];
 
 const ASPECT_OPTIONS: Array<{ value: DesignAspect; label: string }> = [
   { value: 'portrait', label: 'Portrait' },
   { value: 'landscape', label: 'Landscape' },
+];
+
+const CREATIVITY_MODE_OPTIONS: Array<{ value: DesignCreativityMode; label: string }> = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'creative', label: 'Creative' },
 ];
 
 const optionText = (count: DirectDesignCount): string => `${count} Design${count === 1 ? '' : 's'}`;
@@ -76,17 +86,21 @@ function DropdownShell({
 export function SeedFilterControls({
   designCount,
   aspect,
+  creativityMode,
   disabled,
   onDesignCountChange,
   onAspectChange,
+  onCreativityModeChange,
 }: {
   designCount: DirectDesignCount;
   aspect: DesignAspect;
   quality: DesignQuality;
+  creativityMode: DesignCreativityMode;
   disabled: boolean;
   onDesignCountChange: (count: DirectDesignCount) => void;
   onAspectChange: (aspect: DesignAspect) => void;
   onQualityChange: (quality: DesignQuality) => void;
+  onCreativityModeChange: (creativityMode: DesignCreativityMode) => void;
 }) {
   const [openMenu, setOpenMenu] = React.useState<'aspect' | 'count' | null>(null);
   const selectedAspect = ASPECT_OPTIONS.find((option) => option.value === aspect) ?? ASPECT_OPTIONS[0]!;
@@ -96,6 +110,32 @@ export function SeedFilterControls({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-3">
+      <div
+        className="flex h-10 items-center rounded-full border border-black/12 bg-white/90 p-1"
+        role="group"
+        aria-label="Creativity mode"
+      >
+        {CREATIVITY_MODE_OPTIONS.map((option) => {
+          const isActive = option.value === creativityMode;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={isActive}
+              className={[
+                'h-8 rounded-full px-3 text-[13px] font-semibold leading-none transition-colors focus:outline-none',
+                isActive ? 'bg-black text-white' : 'text-black/68 hover:bg-black/6 hover:text-black',
+                disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+              ].join(' ')}
+              disabled={disabled}
+              onClick={() => onCreativityModeChange(option.value)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
       <DropdownShell
         isOpen={openMenu === 'aspect'}
         onClose={closeMenu}

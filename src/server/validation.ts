@@ -1,16 +1,28 @@
 import type {
   CreateRunRequest,
   CreateWorkspaceRequest,
+  CreateWorkspaceSeedRunRequest,
   DesignAspect,
+  DesignCreativityMode,
   DesignQuality,
   DirectCreateHandoverRequest,
   DirectDesignCount,
+  DesignImageEditRequest,
+  DesignImageExtensionRequest,
   PlanWorkspacePagesRequest,
+  UpdateWorkspacePageRunRequest,
+  UpdateDesignActiveRevisionRequest,
+  UpdateWorkspacePlannerRequest,
   UpdateWorkspacePageRequest,
+  UpdateWorkspaceSeedRunRequest,
   UpdateWorkspaceSeedSelectionRequest,
 } from '../shared/types.js';
 
 const DATA_URL_PATTERN = /^data:image\/(png|jpeg|jpg|webp);base64,[a-z0-9+/=\s]+$/i;
+const PNG_DATA_URL_PATTERN = /^data:image\/png;base64,[a-z0-9+/=\s]+$/i;
+const MAX_IMAGE_EDIT_PROMPT_CHARS = 2000;
+const MAX_IMAGE_EXTENSION_PROMPT_CHARS = 1200;
+const MAX_PLANNER_PROMPT_CHARS = 2000;
 
 export const normalizeBatchSize = (value: unknown): number => {
   const parsed = Number(value);
@@ -35,8 +47,16 @@ export const normalizeQuality = (value: unknown): DesignQuality => {
   return 'medium';
 };
 
+export const normalizeCreativityMode = (value: unknown): DesignCreativityMode => (
+  value === 'creative' || value === 'explorer' ? 'creative' : 'standard'
+);
+
 export const isImageDataUrl = (value: unknown): value is string => (
   typeof value === 'string' && DATA_URL_PATTERN.test(value.trim())
+);
+
+export const isPngDataUrl = (value: unknown): value is string => (
+  typeof value === 'string' && PNG_DATA_URL_PATTERN.test(value.trim())
 );
 
 export const normalizeReferenceDataUrls = (value: unknown): string[] => {
@@ -60,6 +80,7 @@ export const parseCreateRunRequest = (value: unknown): CreateRunRequest => {
     batchSize: normalizeBatchSize(record.batchSize),
     aspect: normalizeAspect(record.aspect),
     quality: normalizeQuality(record.quality),
+    creativityMode: normalizeCreativityMode(record.creativityMode),
   };
 };
 
@@ -79,6 +100,15 @@ export const parseCreateWorkspaceRequest = (value: unknown): CreateWorkspaceRequ
     seedVariationCount: normalizeDirectDesignCount(record.seedVariationCount ?? record.batchSize),
     aspect: normalizeAspect(record.aspect),
     quality: normalizeQuality(record.quality),
+    creativityMode: normalizeCreativityMode(record.creativityMode),
+  };
+};
+
+export const parseCreateWorkspaceSeedRunRequest = (value: unknown): CreateWorkspaceSeedRunRequest => {
+  const request = parseCreateWorkspaceRequest(value);
+  return {
+    ...request,
+    seedVariationCount: request.seedVariationCount ?? 3,
   };
 };
 
@@ -94,6 +124,27 @@ export const parsePlanWorkspacePagesRequest = (value: unknown): PlanWorkspacePag
   return {
     ...(pagePrompt ? { pagePrompt } : {}),
   };
+};
+
+export const parseUpdateWorkspacePlannerRequest = (value: unknown): UpdateWorkspacePlannerRequest => {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const patch: UpdateWorkspacePlannerRequest = {};
+  if ('plannerVisible' in record) {
+    if (typeof record.plannerVisible !== 'boolean') {
+      throw new Error('plannerVisible must be a boolean.');
+    }
+    patch.plannerVisible = record.plannerVisible;
+  }
+  if ('plannerPrompt' in record) {
+    const plannerPrompt = typeof record.plannerPrompt === 'string' ? record.plannerPrompt.trim() : '';
+    if (plannerPrompt.length > MAX_PLANNER_PROMPT_CHARS) {
+      throw new Error('plannerPrompt is too long.');
+    }
+    patch.plannerPrompt = plannerPrompt;
+  }
+  return patch;
 };
 
 export const parseUpdateWorkspacePageRequest = (value: unknown): UpdateWorkspacePageRequest => {
@@ -131,6 +182,94 @@ export const parseUpdateWorkspaceSeedSelectionRequest = (value: unknown): Update
   return { selectedSeedDesignId: parseDesignId(record.selectedSeedDesignId ?? record.designId) };
 };
 
+export const parseUpdateWorkspaceSeedRunRequest = (value: unknown): UpdateWorkspaceSeedRunRequest => {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return { runId: parseRunId(record.runId) };
+};
+
+export const parseUpdateWorkspacePageRunRequest = (value: unknown): UpdateWorkspacePageRunRequest => {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return { runId: parseRunId(record.runId) };
+};
+
+const parseRevisionId = (value: unknown): string => {
+  const revisionId = typeof value === 'string' ? value.trim() : '';
+  if (!/^[a-z0-9-]{3,120}$/i.test(revisionId)) {
+    throw new Error('A valid revision id is required.');
+  }
+  return revisionId;
+};
+
+const parseOptionalRevisionId = (value: unknown): string | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return parseRevisionId(value);
+};
+
+export const parseDesignImageEditRequest = (value: unknown): DesignImageEditRequest => {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const prompt = typeof record.prompt === 'string' ? record.prompt.trim() : '';
+  if (prompt.length > MAX_IMAGE_EDIT_PROMPT_CHARS) {
+    throw new Error('Edit prompt is too long.');
+  }
+  const maskDataUrl = record.maskDataUrl === null || record.maskDataUrl === ''
+    ? null
+    : isPngDataUrl(record.maskDataUrl)
+      ? record.maskDataUrl.trim()
+      : undefined;
+  if ('maskDataUrl' in record && record.maskDataUrl && !maskDataUrl) {
+    throw new Error('maskDataUrl must be a PNG data URL.');
+  }
+  if (!maskDataUrl && !prompt) {
+    throw new Error('Prompt is required when editing the full image.');
+  }
+  return {
+    prompt: prompt || null,
+    maskDataUrl: maskDataUrl ?? null,
+    sourceRevisionId: parseOptionalRevisionId(record.sourceRevisionId),
+  };
+};
+
+export const parseDesignImageExtensionRequest = (value: unknown): DesignImageExtensionRequest => {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  if (record.direction !== 'bottom') {
+    throw new Error('direction must be bottom.');
+  }
+  const nextPagePrompt = typeof record.nextPagePrompt === 'string'
+    ? record.nextPagePrompt.trim()
+    : typeof record.prompt === 'string'
+      ? record.prompt.trim()
+      : '';
+  if (nextPagePrompt.length > MAX_IMAGE_EXTENSION_PROMPT_CHARS) {
+    throw new Error('nextPagePrompt is too long.');
+  }
+  return {
+    direction: 'bottom',
+    nextPagePrompt: nextPagePrompt || null,
+    sourceRevisionId: parseOptionalRevisionId(record.sourceRevisionId),
+  };
+};
+
+export const parseUpdateDesignActiveRevisionRequest = (value: unknown): UpdateDesignActiveRevisionRequest => {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  if (!('activeRevisionId' in record)) {
+    throw new Error('activeRevisionId is required.');
+  }
+  return {
+    activeRevisionId: parseOptionalRevisionId(record.activeRevisionId) ?? null,
+  };
+};
+
 export const parseDirectCreateHandoverRequest = (value: unknown): DirectCreateHandoverRequest => {
   const record = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -147,6 +286,7 @@ export const parseDirectCreateHandoverRequest = (value: unknown): DirectCreateHa
     designCount: normalizeDirectDesignCount(record.designCount ?? record.count ?? record.batchSize),
     aspect: normalizeAspect(record.aspect),
     quality: normalizeQuality(record.quality),
+    creativityMode: normalizeCreativityMode(record.creativityMode),
   };
 };
 
@@ -156,6 +296,14 @@ export const parseDesignId = (value: unknown): string => {
     throw new Error('A valid designId is required.');
   }
   return designId;
+};
+
+export const parseRunId = (value: unknown): string => {
+  const runId = typeof value === 'string' ? value.trim() : '';
+  if (!/^[a-z0-9-]{3,80}$/i.test(runId)) {
+    throw new Error('A valid runId is required.');
+  }
+  return runId;
 };
 
 export const parseWorkspaceId = (value: string): string => {

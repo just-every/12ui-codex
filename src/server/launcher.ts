@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { projectRoot, serverConfig } from './config.js';
+import { projectRoot, serverConfig, serverStateRoot } from './config.js';
 import { getStatus } from './cliHttp.js';
 import { launchServerEnv } from './launchEnv.js';
 import { chooseLaunchPort, originForPort, readRememberedPort, rememberPort } from './serverPort.js';
@@ -46,7 +46,7 @@ export const launchServer = async (): Promise<{
   } catch {
     const entry = serverEntryPath();
     await access(entry);
-    const logsDir = path.join(projectRoot, '.runs', 'codex-design-server');
+    const logsDir = path.join(serverStateRoot, 'codex-design-server');
     await mkdir(logsDir, { recursive: true });
     const out = await open(path.join(logsDir, 'server.log'), 'a');
     const err = await open(path.join(logsDir, 'server-error.log'), 'a');

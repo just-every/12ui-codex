@@ -2,6 +2,7 @@ export type RunStatus = 'queued' | 'running' | 'completed' | 'failed';
 
 export type DesignAspect = 'portrait' | 'landscape';
 export type DesignQuality = 'low' | 'medium' | 'high';
+export type DesignCreativityMode = 'standard' | 'creative';
 
 export type CreateRunRequest = {
   prompt: string;
@@ -10,6 +11,7 @@ export type CreateRunRequest = {
   batchSize: number;
   aspect: DesignAspect;
   quality: DesignQuality;
+  creativityMode: DesignCreativityMode;
 };
 
 export type DirectDesignCount = 1 | 3 | 6 | 12;
@@ -21,6 +23,7 @@ export type DirectCreateHandoverRequest = {
   designCount: DirectDesignCount;
   aspect: DesignAspect;
   quality: DesignQuality;
+  creativityMode: DesignCreativityMode;
 };
 
 export type DesignOutput = {
@@ -31,6 +34,30 @@ export type DesignOutput = {
   assetPath: string;
   model: string;
   createdAt: string;
+  revisions?: DesignImageRevision[];
+  activeRevisionId?: string | null;
+};
+
+export type DesignImageRevisionKind = 'edit' | 'extension';
+
+export type DesignImageRevision = {
+  id: string;
+  kind: DesignImageRevisionKind;
+  assetPath: string;
+  prompt: string | null;
+  model: string;
+  sourceRevisionId: string | null;
+  sourceAssetPath: string;
+  createdAt: string;
+  maskAssetPath?: string | null;
+  extension?: {
+    direction: 'bottom';
+    extensionAssetPath: string;
+    sourceWidth: number;
+    sourceHeight: number;
+    extensionWidth: number;
+    extensionHeight: number;
+  } | null;
 };
 
 export type PlannedDesign = {
@@ -42,7 +69,7 @@ export type PlannedDesign = {
 export type RunEvent = {
   id: number;
   at: string;
-  type: 'queued' | 'planning' | 'planned' | 'generating' | 'generated' | 'handover' | 'completed' | 'failed';
+  type: 'queued' | 'planning' | 'prompting' | 'planned' | 'generating' | 'generated' | 'handover' | 'completed' | 'failed';
   message: string;
   progress: number;
 };
@@ -65,6 +92,7 @@ export type DesignRun = {
   batchSize: number;
   aspect: DesignAspect;
   quality: DesignQuality;
+  creativityMode: DesignCreativityMode;
   textModel: string;
   imageModel: string;
   progress: number;
@@ -88,6 +116,33 @@ export type HandoverRequest = {
 export type HandoverResponse = {
   handover: HandoverResult;
   run: DesignRun;
+};
+
+export type DesignImageEditRequest = {
+  prompt?: string | null;
+  maskDataUrl?: string | null;
+  sourceRevisionId?: string | null;
+};
+
+export type DesignImageExtensionRequest = {
+  direction: 'bottom';
+  nextPagePrompt?: string | null;
+  sourceRevisionId?: string | null;
+};
+
+export type UpdateDesignActiveRevisionRequest = {
+  activeRevisionId: string | null;
+};
+
+export type DesignImageRevisionResponse = {
+  run: DesignRun;
+  design: DesignOutput;
+  revision: DesignImageRevision;
+};
+
+export type UpdateDesignActiveRevisionResponse = {
+  run: DesignRun;
+  design: DesignOutput;
 };
 
 export type SelectedDesign = {
@@ -116,6 +171,13 @@ export type LocalUiConnection = {
   message: string;
   checkedAt: string | null;
   details?: unknown;
+  auth?: {
+    configured: boolean;
+    source: 'env' | 'file' | 'local' | null;
+    organizationId?: string | null;
+    organizationName?: string | null;
+    clientId?: string | null;
+  };
 };
 
 export type ConnectionResponse = {
@@ -145,6 +207,12 @@ export type UpdateConnectionRequest = {
   origin: string;
 };
 
+export type TwelveUiConnectStartResponse = {
+  requestId: string;
+  connectUrl: string;
+  returnUrl: string;
+};
+
 export type CreateWorkspaceStatus = 'idle' | 'seed_running' | 'planning' | 'ready' | 'failed';
 
 export type CreateWorkspacePage = {
@@ -152,6 +220,7 @@ export type CreateWorkspacePage = {
   title: string;
   prompt: string;
   order: number;
+  runIds: string[];
   variationCount: DirectDesignCount;
   runId: string | null;
   selectedVariationId: string | null;
@@ -168,10 +237,14 @@ export type CreateWorkspace = {
   referenceDataUrls: string[];
   aspect: DesignAspect;
   quality: DesignQuality;
+  creativityMode: DesignCreativityMode;
   seedVariationCount: DirectDesignCount;
+  seedRunIds: string[];
   seedRunId: string | null;
   selectedSeedDesignId: string | null;
   seedHandover: HandoverResult | null;
+  plannerVisible: boolean;
+  plannerPrompt: string;
   pages: CreateWorkspacePage[];
   error: string | null;
   createdAt: string;
@@ -185,6 +258,11 @@ export type CreateWorkspaceRequest = {
   seedVariationCount?: DirectDesignCount;
   aspect: DesignAspect;
   quality: DesignQuality;
+  creativityMode: DesignCreativityMode;
+};
+
+export type CreateWorkspaceSeedRunRequest = Omit<CreateWorkspaceRequest, 'seedVariationCount'> & {
+  seedVariationCount: DirectDesignCount;
 };
 
 export type CreateWorkspaceResponse = {
@@ -200,11 +278,24 @@ export type PlanWorkspacePagesRequest = {
   pagePrompt?: string;
 };
 
+export type UpdateWorkspacePlannerRequest = {
+  plannerVisible?: boolean;
+  plannerPrompt?: string;
+};
+
 export type UpdateWorkspacePageRequest = {
   title?: string;
   prompt?: string;
   variationCount?: DirectDesignCount;
   selectedVariationId?: string | null;
+};
+
+export type UpdateWorkspaceSeedRunRequest = {
+  runId: string;
+};
+
+export type UpdateWorkspacePageRunRequest = {
+  runId: string;
 };
 
 export type UpdateWorkspaceSeedSelectionRequest = {

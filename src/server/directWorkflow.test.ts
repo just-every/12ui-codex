@@ -97,6 +97,7 @@ describe('direct workflow', () => {
       designCount: 6,
       aspect: 'landscape',
       quality: 'medium',
+      creativityMode: 'creative',
     });
 
     expect(mocks.startGeneration).toHaveBeenCalledTimes(1);
@@ -107,6 +108,7 @@ describe('direct workflow', () => {
       batchSize: 6,
       aspect: 'landscape',
       quality: 'medium',
+      creativityMode: 'creative',
     }]);
     expect(observedGenerationRequests[0]?.prompt).not.toContain('Generate batch');
     expect(result.runs).toHaveLength(1);

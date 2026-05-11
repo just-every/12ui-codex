@@ -48,6 +48,7 @@ cat <<'JSON' | codex-design create --json
 {
   "prompt": "<user design prompt>",
   "seedVariationCount": 3,
+  "creativityMode": "standard",
   "aspect": "portrait",
   "referenceDataUrls": []
 }
@@ -64,13 +65,13 @@ Every CLI response that includes a `browserUrl`, `workspaceUrl`, `handoverHtmlUr
 codex-design wait --workspace <workspaceId> --event seed_design_selected --timeout-ms 1800000
 ```
 
-6. Tell the user the selected design was detected and ask them to click Handover in the browser. Then wait for completion:
+6. Tell the user the selected design was detected. If 12ui is connected, HTML handover starts automatically in the background; otherwise ask them to connect 12ui or click Handover in the browser. Then wait for completion:
 
 ```bash
 codex-design wait --workspace <workspaceId> --event handover_completed,handover_failed --timeout-ms 1800000
 ```
 
-7. If handover completed, use the returned `handoverHtmlUrl`, `handoverUrl`, and `zipUrl` as the source of truth for implementation. Do not start from a blank page.
+7. If handover completed, use the returned `handoverHtmlUrl`, `handoverUrl`, and `zipUrl` when present as the source of truth for implementation. Do not start from a blank page.
 
 ## Advanced flow: workspace pages
 
@@ -78,9 +79,9 @@ Use this only when the user asks for multiple pages, a larger site/app flow, or 
 
 1. Create/open the workspace as above.
 2. Wait for `seed_design_selected`.
-3. Plan pages through the local workspace API/UI.
+3. Add pages through the local workspace API/UI.
 4. For each page, wait for `page_variation_selected`.
-5. Wait for `handover_completed` after the user clicks Handover for the selected page.
+5. If 12ui is connected, HTML handover starts automatically after each selection. Wait for `handover_completed`; otherwise ask the user to connect 12ui or click Handover for the selected page.
 
 ## Recovery
 

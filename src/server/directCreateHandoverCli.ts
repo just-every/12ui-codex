@@ -85,6 +85,7 @@ const main = async (): Promise<void> => {
     designCount: getStringArg(args, 'count') ?? input.designCount,
     aspect: getStringArg(args, 'aspect') ?? input.aspect,
     quality: getStringArg(args, 'quality') ?? input.quality,
+    creativityMode: getStringArg(args, 'creativity') ?? getStringArg(args, 'creativity-mode') ?? input.creativityMode,
     sketchDataUrl: getStringArg(args, 'sketch')
       ? await imageDataUrlFromPath(getStringArg(args, 'sketch')!)
       : input.sketchDataUrl,

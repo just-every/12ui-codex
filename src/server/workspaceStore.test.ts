@@ -4,6 +4,8 @@ import {
   createWorkspace,
   patchWorkspacePage,
   readWorkspace,
+  setWorkspaceActivePageRun,
+  setWorkspaceActiveSeedRun,
   setWorkspacePageRun,
   setWorkspacePages,
   setWorkspaceSeedRun,
@@ -26,25 +28,33 @@ describe('workspaceStore', () => {
       seedVariationCount: 3,
       aspect: 'portrait',
       quality: 'medium',
+      creativityMode: 'creative',
     });
     workspaceDirs.push(workspaceDir(workspace.id));
 
     await setWorkspaceSeedRun(workspace.id, 'seed-run-1');
+    await setWorkspaceSeedRun(workspace.id, 'seed-run-2');
+    await setWorkspaceActiveSeedRun(workspace.id, 'seed-run-1');
     await setWorkspaceSeedSelection(workspace.id, 'design-1');
     await setWorkspacePages(workspace.id, [
       { id: 'home-1', title: 'Home', prompt: 'A home page', order: 1 },
       { id: 'settings-2', title: 'Settings', prompt: 'A settings page', order: 2, variationCount: 6 },
     ]);
     await setWorkspacePageRun(workspace.id, 'settings-2', 'settings-run-1');
+    await setWorkspacePageRun(workspace.id, 'settings-2', 'settings-run-2');
+    await setWorkspaceActivePageRun(workspace.id, 'settings-2', 'settings-run-1');
     await patchWorkspacePage(workspace.id, 'settings-2', { selectedVariationId: 'design-2', status: 'ready' });
 
     const persisted = await readWorkspace(workspace.id);
+    expect(persisted.creativityMode).toBe('creative');
     expect(persisted.seedRunId).toBe('seed-run-1');
+    expect(persisted.seedRunIds).toEqual(['seed-run-1', 'seed-run-2']);
     expect(persisted.selectedSeedDesignId).toBe('design-1');
     expect(persisted.pages).toHaveLength(2);
     expect(persisted.pages[1]).toMatchObject({
       id: 'settings-2',
       runId: 'settings-run-1',
+      runIds: ['settings-run-1', 'settings-run-2'],
       selectedVariationId: 'design-2',
       variationCount: 6,
       status: 'ready',

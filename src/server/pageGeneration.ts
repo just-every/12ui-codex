@@ -43,5 +43,6 @@ export const buildPageRunRequest = async (
     batchSize: page.variationCount,
     aspect: workspace.aspect,
     quality: workspace.quality,
+    creativityMode: workspace.creativityMode,
   };
 };

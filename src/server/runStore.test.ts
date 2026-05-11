@@ -15,6 +15,7 @@ describe('runStore', () => {
       batchSize: 1,
       aspect: 'portrait',
       quality: 'medium',
+      creativityMode: 'standard',
     });
     runDirs.push(runDir(run.id));
     await addRunEvent(run.id, {

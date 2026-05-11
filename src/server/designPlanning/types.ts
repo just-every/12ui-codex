@@ -7,8 +7,16 @@ export type DesignPlanningImage = {
 
 export type DesignIdea = {
   branchIndex: number;
-  title: string;
+  name: string;
   direction: string;
+  description: string;
+  header: string;
+  primaryCta: string;
+  supportingUi: string;
+  imagery: string;
+  tone: string;
+  differentFromPrevious: string;
+  avoidOverlapWithOtherBranches: string;
   creativeDistance: number;
   intent: string;
 };
@@ -18,6 +26,8 @@ export type IndividualDesignPrompt = {
   title: string;
   prompt: string;
   interpretation: string;
+  directionFidelity: string;
+  visualDifferentiators: string[];
 };
 
 export type DesignPlanningRequest = CreateRunRequest;

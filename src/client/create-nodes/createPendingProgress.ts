@@ -1,9 +1,11 @@
 import type { DesignRun } from '../../shared/types.js';
 
-export const CREATE_PLANNER_ESTIMATE_MS = 10_000;
-export const CREATE_PROMPT_ESTIMATE_MS = 10_000;
-export const CREATE_RENDER_ESTIMATE_MS = 40_000;
+export const CREATE_PLANNER_ESTIMATE_MS = 30_000;
+export const CREATE_PROMPT_ESTIMATE_MS = 30_000;
+export const CREATE_RENDER_ESTIMATE_MS = 90_000;
 export const CREATE_DESIGN_ESTIMATE_MS = CREATE_PLANNER_ESTIMATE_MS + CREATE_PROMPT_ESTIMATE_MS + CREATE_RENDER_ESTIMATE_MS;
+const CREATE_RENDER_TAIL_START_RATIO = 0.7;
+const CREATE_RENDER_TAIL_HALF_LIFE_MS = 10_000;
 
 export type CreatePendingProgressSnapshot = {
   progress: number;
@@ -46,15 +48,36 @@ const eventTimeMs = (
   return parseDateMs(event?.at);
 };
 
+const promptPlanningStartedAtMs = (run: DesignRun): number | null => {
+  const prompting = eventTimeMs(run, 'prompting');
+  if (prompting !== null) return prompting;
+  const planningEvents = run.events.filter((entry) => entry.type === 'planning');
+  return parseDateMs(planningEvents[1]?.at);
+};
+
 const latestProgressEventType = (run: DesignRun): DesignRun['events'][number]['type'] | null => {
   const event = [...run.events].reverse().find((entry) => (
     entry.type === 'generating'
     || entry.type === 'generated'
     || entry.type === 'planned'
+    || entry.type === 'prompting'
     || entry.type === 'planning'
     || entry.type === 'queued'
   ));
   return event?.type ?? null;
+};
+
+const renderPhaseProgress = (elapsedMs: number): number => {
+  const linearProgress = elapsedMs / CREATE_RENDER_ESTIMATE_MS;
+  if (linearProgress <= CREATE_RENDER_TAIL_START_RATIO) {
+    return clamp(linearProgress, 0, CREATE_RENDER_TAIL_START_RATIO);
+  }
+
+  const tailSpan = 1 - CREATE_RENDER_TAIL_START_RATIO;
+  const tailStartMs = CREATE_RENDER_ESTIMATE_MS * CREATE_RENDER_TAIL_START_RATIO;
+  const tailElapsedMs = Math.max(0, elapsedMs - tailStartMs);
+  const tailProgress = tailSpan * (1 - Math.pow(0.5, tailElapsedMs / CREATE_RENDER_TAIL_HALF_LIFE_MS));
+  return clamp(CREATE_RENDER_TAIL_START_RATIO + tailProgress, CREATE_RENDER_TAIL_START_RATIO, 1);
 };
 
 export const buildCreatePendingProgressSnapshot = (args: {
@@ -63,7 +86,7 @@ export const buildCreatePendingProgressSnapshot = (args: {
 }): CreatePendingProgressSnapshot => {
   const startedAtMs = resolveRunStartedAtMs(args.run, args.nowMs);
   const latestType = latestProgressEventType(args.run);
-  const plannedAtMs = eventTimeMs(args.run, 'planned');
+  const promptStartedAtMs = promptPlanningStartedAtMs(args.run);
   const renderingAtMs = eventTimeMs(args.run, 'generating');
   const generatedAtMs = eventTimeMs(args.run, 'generated');
 
@@ -78,7 +101,7 @@ export const buildCreatePendingProgressSnapshot = (args: {
 
   if (renderingAtMs) {
     const elapsedMs = Math.max(0, args.nowMs - renderingAtMs);
-    const phaseProgress = clamp(elapsedMs / CREATE_RENDER_ESTIMATE_MS, 0, 1);
+    const phaseProgress = renderPhaseProgress(elapsedMs);
     const secondsRemaining = Math.max(0, Math.ceil((CREATE_RENDER_ESTIMATE_MS - elapsedMs) / 1000));
     return {
       progress: clamp(0.4 + (phaseProgress * 0.6), 0.4, 0.98),
@@ -97,8 +120,8 @@ export const buildCreatePendingProgressSnapshot = (args: {
     };
   }
 
-  if (plannedAtMs) {
-    const elapsedMs = Math.max(0, args.nowMs - plannedAtMs);
+  if (promptStartedAtMs) {
+    const elapsedMs = Math.max(0, args.nowMs - promptStartedAtMs);
     const phaseProgress = clamp(elapsedMs / CREATE_PROMPT_ESTIMATE_MS, 0, 1);
     const secondsRemaining = Math.max(
       0,

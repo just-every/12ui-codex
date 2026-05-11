@@ -1,14 +1,14 @@
 import type { LocalUiConnection } from '../shared/types.js';
-import { serverConfig } from './config.js';
+import { LOCAL_TWELVE_UI_ORIGIN, serverConfig } from './config.js';
+import { getTwelveUiAuthStatus } from './twelveUiAuthStore.js';
 
-const DEFAULT_LOCAL_UI_ORIGIN = 'http://127.0.0.1:9918';
-
-let currentOrigin = serverConfig.twelveUiOrigin || DEFAULT_LOCAL_UI_ORIGIN;
+let currentOrigin = serverConfig.twelveUiOrigin || LOCAL_TWELVE_UI_ORIGIN;
 let lastConnection: LocalUiConnection = {
   origin: currentOrigin,
   status: 'unchecked',
   message: 'Connection has not been checked yet.',
   checkedAt: null,
+  auth: getTwelveUiAuthStatus(),
 };
 
 const normalizeOrigin = (value: unknown): string => {
@@ -36,7 +36,10 @@ const readResponseBody = async (response: Response): Promise<unknown> => {
 
 export const getTwelveUiOrigin = (): string => currentOrigin;
 
-export const getConnection = (): LocalUiConnection => lastConnection;
+export const getConnection = (): LocalUiConnection => ({
+  ...lastConnection,
+  auth: getTwelveUiAuthStatus(),
+});
 
 export const checkConnection = async (
   originInput: unknown = currentOrigin,
@@ -56,6 +59,7 @@ export const checkConnection = async (
         message: `Local UI status returned ${response.status}.`,
         checkedAt,
         details,
+        auth: getTwelveUiAuthStatus(),
       };
       currentOrigin = origin;
       return lastConnection;
@@ -66,6 +70,7 @@ export const checkConnection = async (
       message: 'Connected to local 12ui UI.',
       checkedAt,
       details,
+      auth: getTwelveUiAuthStatus(),
     };
     currentOrigin = origin;
     return lastConnection;
@@ -75,6 +80,7 @@ export const checkConnection = async (
       status: 'error',
       message: error instanceof Error ? error.message : 'Local UI connection failed.',
       checkedAt,
+      auth: getTwelveUiAuthStatus(),
     };
     currentOrigin = origin;
     return lastConnection;

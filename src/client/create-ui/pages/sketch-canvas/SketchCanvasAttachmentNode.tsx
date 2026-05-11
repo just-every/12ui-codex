@@ -78,7 +78,9 @@ export function SketchCanvasAttachmentNode(args: {
               src={thumbnailUrl}
               alt=""
               className="max-h-full max-w-full rounded-lg object-contain"
+              decoding="async"
               draggable={false}
+              loading="lazy"
             />
           ) : (
             <PaperclipGlyph />

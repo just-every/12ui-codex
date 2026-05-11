@@ -18,6 +18,20 @@ const readTrimmedString = (
   return value;
 };
 
+const readTrimmedStringArray = (
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): string[] => {
+  const value = record[key];
+  if (!Array.isArray(value)) throw new Error(`${label} is missing ${key}.`);
+  const items = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+  if (items.length <= 0) throw new Error(`${label} is missing ${key}.`);
+  return items;
+};
+
 export const parseDesignIdeas = (raw: string, count: number): DesignIdea[] => {
   const parsed = readObject(raw);
   if (!Array.isArray(parsed.ideas) || parsed.ideas.length !== count) {
@@ -34,8 +48,16 @@ export const parseDesignIdeas = (raw: string, count: number): DesignIdea[] => {
     }
     return {
       branchIndex: index + 1,
-      title: readTrimmedString(record, 'title', `Idea ${index + 1}`),
+      name: readTrimmedString(record, 'name', `Idea ${index + 1}`),
       direction: readTrimmedString(record, 'direction', `Idea ${index + 1}`),
+      description: readTrimmedString(record, 'description', `Idea ${index + 1}`),
+      header: readTrimmedString(record, 'header', `Idea ${index + 1}`),
+      primaryCta: readTrimmedString(record, 'primaryCta', `Idea ${index + 1}`),
+      supportingUi: readTrimmedString(record, 'supportingUi', `Idea ${index + 1}`),
+      imagery: readTrimmedString(record, 'imagery', `Idea ${index + 1}`),
+      tone: readTrimmedString(record, 'tone', `Idea ${index + 1}`),
+      differentFromPrevious: readTrimmedString(record, 'differentFromPrevious', `Idea ${index + 1}`),
+      avoidOverlapWithOtherBranches: readTrimmedString(record, 'avoidOverlapWithOtherBranches', `Idea ${index + 1}`),
       creativeDistance,
       intent: readTrimmedString(record, 'intent', `Idea ${index + 1}`),
     };
@@ -51,6 +73,8 @@ export const parseIndividualDesignPrompt = (
     branchIndex,
     title: readTrimmedString(parsed, 'title', `Design prompt ${branchIndex}`),
     interpretation: readTrimmedString(parsed, 'interpretation', `Design prompt ${branchIndex}`),
+    directionFidelity: readTrimmedString(parsed, 'directionFidelity', `Design prompt ${branchIndex}`),
+    visualDifferentiators: readTrimmedStringArray(parsed, 'visualDifferentiators', `Design prompt ${branchIndex}`),
     prompt: readTrimmedString(parsed, 'prompt', `Design prompt ${branchIndex}`),
   };
 };

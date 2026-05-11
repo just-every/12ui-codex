@@ -16,6 +16,7 @@ export function CreateSeedNode(args: {
   isUploading: boolean;
   isCreating: boolean;
   headerControls?: React.ReactNode;
+  runVersionControls?: React.ReactNode;
   title?: string;
   canCreate: boolean;
   createLabel: string;
@@ -121,22 +122,25 @@ export function CreateSeedNode(args: {
             onBlur={() => args.onPromptFocusChange(false)}
           />
         </div>
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-[220px] flex-1">
             {args.headerControls}
           </div>
-          <button
-            type="button"
-            aria-label={args.createLabel}
-            disabled={!args.canCreate}
-            className={cn(
-              'inline-flex min-h-[56px] min-w-[190px] items-center justify-center rounded-full px-8 py-4 text-[16px] font-semibold leading-none text-white',
-              args.canCreate ? 'bg-black' : 'bg-black/18',
-            )}
-            onClick={args.onCreate}
-          >
-            {args.createLabel}
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              aria-label={args.createLabel}
+              disabled={!args.canCreate}
+              className={cn(
+                'inline-flex min-h-[56px] min-w-[190px] items-center justify-center rounded-full px-8 py-4 text-[16px] font-semibold leading-none text-white',
+                args.canCreate ? 'bg-black' : 'bg-black/18',
+              )}
+              onClick={args.onCreate}
+            >
+              {args.createLabel}
+            </button>
+            {args.runVersionControls}
+          </div>
         </div>
       </div>
       {args.uploadError || args.runError ? (

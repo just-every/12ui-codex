@@ -35,13 +35,14 @@ const userMessageForWaitResult = (workspaceId: string, result: unknown): string 
     return `Keep this design workspace open in the Codex in-app browser so the user can continue when ready: ${workspaceUrl(workspaceId)}`;
   }
   if (event.type === 'seed_design_selected') {
-    return `Tell the user their design selection was detected. Keep this workspace open in the Codex in-app browser and ask them to click Handoff when ready: ${workspaceUrl(workspaceId)}`;
+    return `Tell the user their design selection was detected. If 12ui is connected, HTML handover has started automatically in the background; otherwise keep this workspace open in the Codex in-app browser and connect 12ui or click Handoff: ${workspaceUrl(workspaceId)}`;
   }
   if (event.type === 'page_variation_selected') {
-    return `Tell the user their page variation selection was detected. Keep this workspace open in the Codex in-app browser and ask them to click Handoff when ready: ${workspaceUrl(workspaceId)}`;
+    return `Tell the user their page variation selection was detected. If 12ui is connected, HTML handover has started automatically in the background; otherwise keep this workspace open in the Codex in-app browser and connect 12ui or click Handoff: ${workspaceUrl(workspaceId)}`;
   }
   if (event.type === 'handover_completed') {
     const payload = event.payload ?? {};
+    const status = typeof payload.statusUrl === 'string' ? payload.statusUrl : '';
     const text = typeof payload.handoffText === 'string' ? payload.handoffText : '';
     const html = typeof payload.handoverHtmlUrl === 'string' ? payload.handoverHtmlUrl : '';
     const md = typeof payload.handoverUrl === 'string' ? payload.handoverUrl : '';
@@ -49,6 +50,7 @@ const userMessageForWaitResult = (workspaceId: string, result: unknown): string 
     return [
       'Tell the user Handover is complete and continue implementation from the returned handover assets.',
       text ? `handoffText:\n${text}` : '',
+      status ? `statusUrl: ${status}` : '',
       html ? `handoverHtmlUrl: ${html}` : '',
       md ? `handoverUrl: ${md}` : '',
       zip ? `zipUrl: ${zip}` : '',
@@ -105,6 +107,7 @@ const main = async (): Promise<void> => {
       workspaceId,
       events: parseEvents(stringFlag(flags, 'event')),
       timeoutMs: Number(stringFlag(flags, 'timeout-ms', 'timeoutMs') ?? 1_800_000),
+      afterEventId: Number(stringFlag(flags, 'after-event-id', 'afterEventId') ?? 0),
     });
     printJson({
       ...(result && typeof result === 'object' && !Array.isArray(result) ? result : { result }),

@@ -20,9 +20,15 @@ const eventIds = new Map<string, number>();
 
 const nowIso = (): string => new Date().toISOString();
 const eventLogPath = (workspaceId: string): string => path.join(workspaceDir(workspaceId), 'codex-events.jsonl');
+const REPLAY_WINDOW_MS = 120_000;
 
-const nextEventId = (workspaceId: string): number => {
-  const next = (eventIds.get(workspaceId) ?? latestEvents.get(workspaceId)?.id ?? 0) + 1;
+const nextEventId = async (workspaceId: string): Promise<number> => {
+  let current = eventIds.get(workspaceId) ?? latestEvents.get(workspaceId)?.id ?? null;
+  if (current === null) {
+    const events = await readCodexBridgeEvents(workspaceId);
+    current = events.reduce((max, event) => Math.max(max, event.id), 0);
+  }
+  const next = current + 1;
   eventIds.set(workspaceId, next);
   return next;
 };
@@ -90,7 +96,7 @@ export const emitCodexBridgeEvent = async (args: {
   payload?: Record<string, unknown>;
 }): Promise<CodexBridgeEvent> => {
   const event: CodexBridgeEvent = {
-    id: nextEventId(args.workspaceId),
+    id: await nextEventId(args.workspaceId),
     at: nowIso(),
     workspaceId: args.workspaceId,
     type: args.type,
@@ -113,6 +119,35 @@ export const readCodexBridgeEvents = async (workspaceId: string): Promise<CodexB
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
     throw error;
   }
+};
+
+const findLatestAcceptedEvent = async (
+  workspaceId: string,
+  acceptedTypes: Set<CodexBridgeEventType>,
+  afterEventId: number,
+): Promise<CodexBridgeEvent | null> => {
+  const latest = latestEvents.get(workspaceId);
+  if (latest && latest.id > afterEventId && (acceptedTypes.size === 0 || acceptedTypes.has(latest.type))) return latest;
+  const events = await readCodexBridgeEvents(workspaceId);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (event.id <= afterEventId) continue;
+    if (acceptedTypes.size === 0 || acceptedTypes.has(event.type)) return event;
+  }
+  return null;
+};
+
+const isFreshReplayEvent = (event: CodexBridgeEvent, afterEventId: number): boolean => {
+  if (afterEventId > 0) return true;
+  const timestamp = Date.parse(event.at);
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= REPLAY_WINDOW_MS;
+};
+
+const shouldReplayExistingEvent = (acceptedTypes: Set<CodexBridgeEventType>, afterEventId: number): boolean => {
+  if (afterEventId > 0) return true;
+  if (acceptedTypes.size === 0) return false;
+  const terminalHandoverTypes = new Set<CodexBridgeEventType>(['handover_completed', 'handover_failed']);
+  return [...acceptedTypes].every((type) => terminalHandoverTypes.has(type));
 };
 
 const writeSse = (
@@ -165,9 +200,20 @@ export const waitForCodexBridgeEvent = async (
   types: CodexBridgeEventType[],
   timeoutMs: number,
   request: IncomingMessage,
+  afterEventId = 0,
 ): Promise<CodexBridgeWaitResponse> => {
-  const doneWaiting = addWaitingClient(workspaceId);
   const acceptedTypes = new Set(types);
+  if (shouldReplayExistingEvent(acceptedTypes, afterEventId)) {
+    const existingEvent = await findLatestAcceptedEvent(workspaceId, acceptedTypes, afterEventId);
+    if (existingEvent && isFreshReplayEvent(existingEvent, afterEventId)) {
+      return {
+        status: 'event',
+        event: existingEvent,
+        bridgeStatus: getCodexBridgeStatus(workspaceId),
+      };
+    }
+  }
+  const doneWaiting = addWaitingClient(workspaceId);
   return new Promise<CodexBridgeWaitResponse>((resolve) => {
     let finished = false;
     const finish = (status: CodexBridgeWaitResponse['status'], event: CodexBridgeEvent | null): void => {
@@ -183,7 +229,7 @@ export const waitForCodexBridgeEvent = async (
       });
     };
     const unsubscribe = onCodexBridgeEvent(workspaceId, (event) => {
-      if (acceptedTypes.size === 0 || acceptedTypes.has(event.type)) {
+      if (event.id > afterEventId && (acceptedTypes.size === 0 || acceptedTypes.has(event.type))) {
         finish('event', event);
       }
     });

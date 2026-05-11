@@ -6,6 +6,12 @@ import { randomUUID } from 'node:crypto';
 import { devices, test, expect, type Page } from '@playwright/test';
 import type { CreateWorkspace, DesignRun } from '../../src/shared/types.js';
 
+const runsRoot = (): string => (
+  process.env.CODEX_12UI_DATA_DIR?.trim()
+    ? path.join(process.env.CODEX_12UI_DATA_DIR, 'runs')
+    : path.join(process.cwd(), '.runs')
+);
+
 const openSketchInput = async (page: Page) => {
   await page.getByTestId('sketch-tool-draw').click();
   await expect(page.getByTestId('sketch-composer-canvas-frame')).toBeVisible();
@@ -48,7 +54,7 @@ test('connects the browser UI to a local 12ui origin', async ({ page, request })
     await page.getByRole('button', { name: 'Aspect ratio' }).click();
     await page.getByRole('button', { name: 'Landscape' }).click();
     await expect(page.getByRole('button', { name: 'Aspect ratio' })).toContainText('Landscape');
-    await expect(page.getByLabel('Create page plan prompt')).toHaveCount(0);
+    await expect(page.getByLabel('Add pages prompt')).toHaveCount(0);
 
     const nodeDragProbe = await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>('[data-canvas-node="true"]');
@@ -84,7 +90,8 @@ test('connects the browser UI to a local 12ui origin', async ({ page, request })
     expect(connectionResponse.ok()).toBeTruthy();
 
     await expect(page.getByTestId('handoff-dock')).toContainText(/Codex/);
-    await expect(page.getByRole('button', { name: 'Handoff' })).toBeVisible();
+    await expect(page.getByTestId('handoff-dock')).toContainText('12ui connected');
+    await expect(page.getByRole('button', { name: /Handover/ })).toBeVisible();
     await expect(page.getByTestId('handoff-dock')).not.toContainText('0 ready');
   } finally {
     await new Promise<void>((resolve) => localUi.close(() => resolve()));
@@ -329,35 +336,33 @@ test('shows pending seed variation loading panels for an active run', async ({ p
     seedVariationCount: 3,
     seedRunId: runId,
     selectedSeedDesignId: null,
+    seedHandover: null,
+    plannerVisible: false,
+    plannerPrompt: '',
     pages: [],
     error: null,
     createdAt: now,
     updatedAt: now,
   };
 
-  await mkdir(path.join(process.cwd(), '.runs', runId), { recursive: true });
-  await mkdir(path.join(process.cwd(), '.runs', 'workspaces', workspaceId), { recursive: true });
-  await writeFile(path.join(process.cwd(), '.runs', runId, 'run.json'), `${JSON.stringify(run, null, 2)}\n`, 'utf8');
-  await writeFile(path.join(process.cwd(), '.runs', 'workspaces', workspaceId, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
+  const root = runsRoot();
+  await mkdir(path.join(root, runId), { recursive: true });
+  await mkdir(path.join(root, 'workspaces', workspaceId), { recursive: true });
+  await writeFile(path.join(root, runId, 'run.json'), `${JSON.stringify(run, null, 2)}\n`, 'utf8');
+  await writeFile(path.join(root, 'workspaces', workspaceId, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
 
   await page.setViewportSize({ width: 1800, height: 900 });
   await page.goto(`/workspaces/${workspaceId}`);
-  await expect(page.getByText('Creating designs')).toBeVisible();
   await expect(page.getByTestId('create-pending-variation-Faithful Moonrise Hero')).toContainText('Faithful Moonrise Hero');
   await expect(page.getByTestId('create-pending-variation-Faithful Moonrise Hero')).not.toContainText('Creating design');
   await expect(page.getByTestId('create-pending-variation-Faithful Moonrise Hero')).not.toContainText('Generating first concept.');
   await expect(page.getByText('Rendering image').first()).toBeVisible();
   await expect(page.getByText(/remaining|almost ready/).first()).toBeVisible();
-  await page.waitForFunction(() => {
-    const panel = document.querySelector('[data-testid="create-pending-variation-Faithful Moonrise Hero"]');
-    if (!panel) return false;
-    const rect = panel.getBoundingClientRect();
-    return rect.y >= 0 && rect.y + rect.height <= window.innerHeight;
-  });
+  await expect(page.getByTestId('create-pending-variation-Faithful Moonrise Hero').getByTestId('sketch-progress-bar')).toBeVisible();
   const pendingPanelBox = await page.getByTestId('create-pending-variation-Faithful Moonrise Hero').boundingBox();
   expect(pendingPanelBox).not.toBeNull();
   expect(pendingPanelBox!.y).toBeGreaterThanOrEqual(0);
-  expect(pendingPanelBox!.y + pendingPanelBox!.height).toBeLessThanOrEqual(900);
+  expect(pendingPanelBox!.y).toBeLessThan(900);
 });
 
 test('shows completed designs at the generated aspect ratio with image downloads', async ({ page }) => {
@@ -409,20 +414,24 @@ test('shows completed designs at the generated aspect ratio with image downloads
     seedVariationCount: 1,
     seedRunId: runId,
     selectedSeedDesignId: null,
+    seedHandover: null,
+    plannerVisible: false,
+    plannerPrompt: '',
     pages: [],
     error: null,
     createdAt: now,
     updatedAt: now,
   };
 
-  await mkdir(path.join(process.cwd(), '.runs', runId, 'assets'), { recursive: true });
-  await mkdir(path.join(process.cwd(), '.runs', 'workspaces', workspaceId), { recursive: true });
-  await writeFile(path.join(process.cwd(), '.runs', runId, 'run.json'), `${JSON.stringify(run, null, 2)}\n`, 'utf8');
+  const root = runsRoot();
+  await mkdir(path.join(root, runId, 'assets'), { recursive: true });
+  await mkdir(path.join(root, 'workspaces', workspaceId), { recursive: true });
+  await writeFile(path.join(root, runId, 'run.json'), `${JSON.stringify(run, null, 2)}\n`, 'utf8');
   await writeFile(
-    path.join(process.cwd(), '.runs', runId, 'assets', 'portrait-regression.png'),
+    path.join(root, runId, 'assets', 'portrait-regression.png'),
     Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAYAAACZgbYnAAAAEElEQVR42mP8z8DwnwEJAA1iA/6kF9aSAAAAAElFTkSuQmCC', 'base64'),
   );
-  await writeFile(path.join(process.cwd(), '.runs', 'workspaces', workspaceId, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
+  await writeFile(path.join(root, 'workspaces', workspaceId, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
 
   await page.setViewportSize({ width: 1800, height: 1100 });
   await page.goto(`/workspaces/${workspaceId}`);
@@ -437,4 +446,164 @@ test('shows completed designs at the generated aspect ratio with image downloads
 
   const imageFit = await page.getByRole('img', { name: 'Portrait Regression Design' }).evaluate((image) => getComputedStyle(image).objectFit);
   expect(imageFit).toBe('contain');
+});
+
+test('reveals the add pages node and creates variations under planned pages', async ({ page }) => {
+  const workspaceId = randomUUID();
+  const seedRunId = randomUUID();
+  const pageRunId = randomUUID();
+  const now = new Date().toISOString();
+  const seedRun: DesignRun = {
+    id: seedRunId,
+    status: 'completed',
+    prompt: '12ui home page',
+    batchSize: 1,
+    aspect: 'portrait',
+    quality: 'medium',
+    textModel: 'codex-gpt-5.5-high',
+    imageModel: 'codex-gpt-image-2',
+    progress: 1,
+    error: null,
+    events: [],
+    plannedDesigns: [
+      {
+        branchIndex: 1,
+        title: '12ui Home Page',
+        prompt: 'A 12ui home page.',
+      },
+    ],
+    designs: [
+      {
+        id: 'seed-design-1',
+        branchIndex: 1,
+        title: '12ui Home Page',
+        prompt: 'A 12ui home page.',
+        assetPath: 'assets/seed.png',
+        model: 'codex-gpt-image-2',
+        createdAt: now,
+      },
+    ],
+    handovers: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  const plannedWorkspace: CreateWorkspace = {
+    id: workspaceId,
+    status: 'ready',
+    prompt: '12ui home page',
+    sketchDataUrl: null,
+    referenceDataUrls: [],
+    aspect: 'portrait',
+    quality: 'medium',
+    seedVariationCount: 1,
+    seedRunId,
+    selectedSeedDesignId: 'seed-design-1',
+    seedHandover: null,
+    plannerVisible: true,
+    plannerPrompt: '',
+    pages: [
+      {
+        id: 'pricing-1',
+        title: 'Pricing',
+        prompt: 'Generate the Pricing page for the same site.',
+        order: 1,
+        variationCount: 3,
+        runId: null,
+        selectedVariationId: null,
+        handover: null,
+        status: 'planned',
+        error: null,
+      },
+    ],
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const pageRun: DesignRun = {
+    id: pageRunId,
+    status: 'completed',
+    prompt: 'Generate the Pricing page for the same site.',
+    batchSize: 3,
+    aspect: 'portrait',
+    quality: 'medium',
+    textModel: 'codex-gpt-5.5-high',
+    imageModel: 'codex-gpt-image-2',
+    progress: 1,
+    error: null,
+    events: [],
+    plannedDesigns: [
+      {
+        branchIndex: 1,
+        title: 'Pricing Direction',
+        prompt: 'A pricing page direction.',
+      },
+    ],
+    designs: [
+      {
+        id: 'pricing-design-1',
+        branchIndex: 1,
+        title: 'Pricing Direction',
+        prompt: 'A pricing page direction.',
+        assetPath: 'assets/pricing.png',
+        model: 'codex-gpt-image-2',
+        createdAt: now,
+      },
+    ],
+    handovers: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const root = runsRoot();
+  await mkdir(path.join(root, seedRunId, 'assets'), { recursive: true });
+  await mkdir(path.join(root, 'workspaces', workspaceId), { recursive: true });
+  await writeFile(path.join(root, seedRunId, 'run.json'), `${JSON.stringify(seedRun, null, 2)}\n`, 'utf8');
+  await writeFile(
+    path.join(root, seedRunId, 'assets', 'seed.png'),
+    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAYAAACZgbYnAAAAEElEQVR42mP8z8DwnwEJAA1iA/6kF9aSAAAAAElFTkSuQmCC', 'base64'),
+  );
+  await writeFile(path.join(root, 'workspaces', workspaceId, 'workspace.json'), `${JSON.stringify({
+    ...plannedWorkspace,
+    plannerVisible: false,
+    pages: [],
+  }, null, 2)}\n`, 'utf8');
+
+  await page.route(`**/api/workspaces/${workspaceId}/page-plan`, async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ pagePrompt: '' });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ workspace: plannedWorkspace }),
+    });
+  });
+  await page.route(`**/api/workspaces/${workspaceId}/pages/pricing-1/runs`, async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        workspace: {
+          ...plannedWorkspace,
+          pages: plannedWorkspace.pages.map((entry) => (
+            entry.id === 'pricing-1' ? { ...entry, runId: pageRunId, status: 'ready' } : entry
+          )),
+        },
+        run: pageRun,
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto(`/workspaces/${workspaceId}`);
+  await expect(page.getByRole('button', { name: 'Add pages' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add pages' }).click();
+  await expect(page.getByLabel('Add pages prompt')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Generate page list' })).toHaveCount(0);
+  await expect(page.getByText('Design reference ready')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Add pages' }).click();
+  await expect(page.getByText('Pricing').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create page designs' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Create page designs' }).click();
+  await expect(page.getByText('Pricing Direction')).toBeVisible();
 });

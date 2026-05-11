@@ -6,7 +6,8 @@ import { saveImageData } from './assets.js';
 import { addDesign, addRunEvent, runDir, setRunStatus } from './runStore.js';
 import { generateDesignImageDataUrl } from './ensembleImage.js';
 import { planDesignIdeas } from './designPlanning/ideaPlanner.js';
-import { planIndividualDesignPrompts } from './designPlanning/individualDesignPlanner.js';
+import { planIndividualDesignPrompt } from './designPlanning/individualDesignPlanner.js';
+import { textModelLabel } from './textModelRequest.js';
 
 const imageSizeForAspect = (aspect: CreateRunRequest['aspect']): '1024x1536' | '1536x1024' => (
   aspect === 'landscape' ? '1536x1024' : '1024x1536'
@@ -27,39 +28,37 @@ export const startGeneration = async (runId: string, request: CreateRunRequest):
     }));
     await addRunEvent(runId, {
       type: 'planning',
-      message: `Planning ${request.batchSize} design direction${request.batchSize === 1 ? '' : 's'} with ${serverConfig.textModel}.`,
+      message: `Planning ${request.batchSize} design direction${request.batchSize === 1 ? '' : 's'} with ${textModelLabel()}.`,
       progress: 0.08,
     }, { status: 'running', error: null });
 
     const designIdeas = await planDesignIdeas(request);
     await writeFile(path.join(runDir(runId), 'idea-plan.json'), `${JSON.stringify(designIdeas, null, 2)}\n`, 'utf8');
     await addRunEvent(runId, {
-      type: 'planning',
-      message: `Planning ${request.batchSize} individual design prompt${request.batchSize === 1 ? '' : 's'} with ${serverConfig.textModel}.`,
-      progress: 0.14,
-    });
-
-    const designPrompts = await planIndividualDesignPrompts(request, designIdeas);
-    await writeFile(path.join(runDir(runId), 'design-prompts.json'), `${JSON.stringify(designPrompts, null, 2)}\n`, 'utf8');
-    await addRunEvent(runId, {
-      type: 'planned',
-      message: 'Design prompts ready.',
+      type: 'prompting',
+      message: `Planning ${request.batchSize} individual design prompt${request.batchSize === 1 ? '' : 's'} with ${textModelLabel()}.`,
       progress: 0.2,
     }, {
-      plannedDesigns: designPrompts.map((designPrompt) => ({
-        branchIndex: designPrompt.branchIndex,
-        title: designPrompt.title,
-        prompt: designPrompt.prompt,
+      plannedDesigns: designIdeas.map((designIdea) => ({
+        branchIndex: designIdea.branchIndex,
+        title: designIdea.name,
+        prompt: designIdea.direction,
       })),
     });
 
-    await Promise.all(designPrompts.map(async (designPrompt, index) => {
+    const designPrompts = await Promise.all(designIdeas.map(async (designIdea, index) => {
+      const designPrompt = await planIndividualDesignPrompt(request, designIdea);
+      await addRunEvent(runId, {
+        type: 'planned',
+        message: `${designPrompt.title} prompt ready.`,
+        progress: 0.2 + (index / designIdeas.length) * 0.1,
+      });
       const branchIndex = designPrompt.branchIndex;
       const designId = `design-${branchIndex}`;
       await addRunEvent(runId, {
         type: 'generating',
         message: `Generating ${designPrompt.title} with ${serverConfig.imageModel}.`,
-        progress: 0.2 + (index / designPrompts.length) * 0.7,
+        progress: 0.3 + (index / designIdeas.length) * 0.6,
       });
       const image = await generateDesignImageDataUrl({
         prompt: designPrompt.prompt,
@@ -82,9 +81,22 @@ export const startGeneration = async (runId: string, request: CreateRunRequest):
       await addRunEvent(runId, {
         type: 'generated',
         message: `${designPrompt.title} generated.`,
-        progress: 0.2 + (branchIndex / designPrompts.length) * 0.7,
+        progress: 0.3 + ((index + 1) / designIdeas.length) * 0.6,
       });
+      return designPrompt;
     }));
+    await writeFile(path.join(runDir(runId), 'design-prompts.json'), `${JSON.stringify(designPrompts, null, 2)}\n`, 'utf8');
+    await addRunEvent(runId, {
+      type: 'planned',
+      message: 'Design prompts ready.',
+      progress: 0.95,
+    }, {
+      plannedDesigns: designPrompts.map((designPrompt) => ({
+        branchIndex: designPrompt.branchIndex,
+        title: designPrompt.title,
+        prompt: designPrompt.prompt,
+      })),
+    });
 
     await addRunEvent(runId, {
       type: 'completed',

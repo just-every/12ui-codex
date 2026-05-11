@@ -3,6 +3,12 @@
   "version": "0.1.3",
   "type": "module",
   "description": "Local 12ui Codex Design app and Codex skill installer",
+  "license": "MIT",
+  "homepage": "https://github.com/just-every/12ui-codex#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/just-every/12ui-codex.git"
+  },
   "main": "dist/server/server/index.js",
   "bin": {
     "codex-design": "dist/server/server/cli.js"
@@ -16,6 +22,7 @@
     "dev": "tsx src/server/index.ts",
     "start": "NODE_ENV=production node dist/server/server/index.js",
     "build": "rm -rf dist/client dist/server && vite build && tsc -p tsconfig.server.json",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -23,7 +30,7 @@
     "create:handover": "tsx src/server/directCreateHandoverCli.ts"
   },
   "dependencies": {
-    "@just-every/ensemble": "0.2.235",
+    "@just-every/ensemble": "0.2.238",
     "@tailwindcss/postcss": "^4.3.0",
     "@vitejs/plugin-react": "^5.1.2",
     "clsx": "^2.1.1",
@@ -31,6 +38,7 @@
     "react-dom": "^19.2.0",
     "react-native": "^0.85.3",
     "react-native-web": "^0.21.2",
+    "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.3.0",
     "vite": "^6.0.11"

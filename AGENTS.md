@@ -52,6 +52,17 @@ Every CLI response that includes `browserUrl`, `workspaceUrl`, `handoverHtmlUrl`
 - Keep `CODEX_12UI_PORT` as an explicit override.
 - Keep `CODEX_12UI_PORT_RANGE` as an optional range override.
 
+## Local UI development
+
+When reviewing or iterating on the browser UI from this repository, run the app in development mode, not production mode.
+
+- Prefer `CODEX_12UI_PORT=9971 pnpm run dev` for the shared local review URL.
+- If the server must stay running after the command returns, use a detached `screen` session that runs the dev command from the repo root.
+- Do not use `NODE_ENV=production node dist/server/server/index.js` for local UI review unless the task is specifically to test the built package.
+- Before telling the user the browser is updated, verify the HTML contains Vite dev entries such as `/@vite/client` and `/src/client/main.tsx`.
+- If `127.0.0.1:9971` is serving `/assets/index-*.js`, it is the production bundle. Stop it and restart dev mode before continuing UI review.
+- After frontend edits, reload the Codex in-app browser tab for the workspace. In dev mode, Vite should serve current source without requiring `pnpm run build`.
+
 ## Verification
 
 Use focused checks:

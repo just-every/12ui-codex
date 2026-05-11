@@ -2,27 +2,6 @@ import React from 'react';
 
 import { cn } from '../../lib/cn';
 
-const statusCopy = (status?: string | null): string => {
-  if (status === 'completed') return 'Complete';
-  if (status === 'failed') return 'Failed';
-  if (status === 'running') return 'Running';
-  if (status === 'queued') return 'Queued';
-  return 'Ready';
-};
-
-export const resolveCreateNodeStatusCopy = statusCopy;
-
-export const resolveCreatePageActionLabel = (args: {
-  hasRun: boolean;
-  isCreating: boolean;
-  isStartBlocked: boolean;
-}): string => {
-  if (args.isCreating) return 'Creating';
-  if (args.isStartBlocked) return 'Add source images';
-  if (args.hasRun) return 'Create again';
-  return 'Create variations';
-};
-
 const isCreateShellActionTarget = (target: EventTarget | null): boolean => (
   target instanceof HTMLElement && Boolean(target.closest([
     'button',

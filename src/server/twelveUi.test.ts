@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { extractHandoverLinks } from './twelveUi.js';
+import { describe, expect, it, vi } from 'vitest';
+import { extractHandoverLinks, fetchHandoverAsset } from './twelveUi.js';
 
 describe('extractHandoverLinks', () => {
   it('reads top-level convert API links', () => {
@@ -30,5 +30,28 @@ describe('extractHandoverLinks', () => {
       handoverHtmlUrl: 'html-url',
       zipUrl: 'zip-url',
     });
+  });
+
+  it('fetches remote handover assets through the recorded URLs', async () => {
+    const fetchImpl = vi.fn(async () => new Response('handover markdown', {
+      status: 200,
+      headers: { 'content-type': 'text/markdown; charset=utf-8' },
+    }));
+
+    const response = await fetchHandoverAsset({
+      handover: {
+        designId: 'design-1',
+        runId: 'run-1',
+        handoverUrl: 'https://12ui.com/api/v1/convert/run-1/handover.md',
+        handoverHtmlUrl: 'https://12ui.com/api/v1/convert/run-1/handover.html',
+        raw: { ok: true },
+        createdAt: '2026-05-11T00:00:00.000Z',
+      },
+      asset: 'handover.md',
+      fetchImpl,
+    });
+
+    expect(await response.text()).toBe('handover markdown');
+    expect(fetchImpl.mock.calls[0]?.[0]).toEqual(new URL('https://12ui.com/api/v1/convert/run-1/handover.md'));
   });
 });

@@ -1,13 +1,13 @@
 import net from 'node:net';
-import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { projectRoot, serverConfig } from './config.js';
+import path from 'node:path';
+import { serverConfig, serverStateRoot } from './config.js';
 
 const DEFAULT_PORT = 9971;
 const DEFAULT_RANGE_END = 9999;
 
-const stateDir = path.join(projectRoot, '.runs', 'codex-design-server');
+const stateDir = path.join(serverStateRoot, 'codex-design-server');
 const statePath = path.join(stateDir, 'server.json');
 
 const parsePort = (value: unknown): number | null => {

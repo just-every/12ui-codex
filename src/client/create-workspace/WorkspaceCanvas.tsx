@@ -11,8 +11,10 @@ import {
   CreateVariationCanvasNodeLocal,
   HandoffDockLocal,
 } from '../create-nodes/CreateCanvasNodesLocal.js';
+import { CreatePlannerNodeLocal } from '../create-nodes/CreatePlannerNodeLocal.js';
 import type {
   ConnectionState,
+  DesignImageActions,
   ExportNodeActions,
   GenerationDraft,
   PageNodeActions,
@@ -23,6 +25,8 @@ import type {
 import type { SketchComposerHandle } from '../create-ui/app/screens/design-create/SketchComposer';
 import { formatAttachmentFileSize } from '../create-ui/pages/sketch-canvas/sketchAttachmentItems';
 import {
+  CREATE_PLANNER_NODE_ID,
+  CREATE_SEED_VARIATION_GROUP_ID,
   CREATE_SEED_NODE_ID,
   buildCreateCanvasLayout,
   createPageNodeId,
@@ -32,17 +36,26 @@ import {
   resolveCreateSeedNodeWidth,
 } from '../create-ui/pages/create/createCanvasLayout';
 import {
+  CREATE_CANVAS_SOURCE_FOCUS_ID,
+  buildCreateCanvasFocusAreas,
+  createPageVariationGroupFocusId,
+} from '../create-ui/pages/create/createCanvasFocus';
+import {
   SKETCH_COMPOSER_CANVAS_WIDTH,
   SKETCH_COMPOSER_DEFAULT_CANVAS_HEIGHT,
   SKETCH_COMPOSER_MIN_CANVAS_HEIGHT,
   normalizeSketchComposerCanvasHeight,
 } from '../create-ui/app/screens/design-create/sketchComposerSizing';
 import { SeedFilterControls } from './SeedFilterControls.js';
+import { RunVersionMenu } from '../create-nodes/RunVersionMenu.js';
+import { useWorkspaceCanvasFocus } from './useWorkspaceCanvasFocus.js';
 import { useViewportSize } from './useViewportSize.js';
+import { buildSeedVariationItems, type SeedVariationItem } from './seedVariationItems.js';
 
 const SETTLED_CANVAS_INTRO_STARTED_AT_MS = -100_000;
 const MOBILE_CANVAS_BREAKPOINT = 760;
 const CREATE_SEED_PROMPT_BASE_HEIGHT = 170;
+const CREATE_SEED_NODE_CHROME_HEIGHT = 164;
 const DESIGN_IMAGE_SIZE_BY_ASPECT = {
   portrait: { width: 1024, height: 1536 },
   landscape: { width: 1536, height: 1024 },
@@ -58,14 +71,6 @@ const hasSeedSketchContent = (args: {
 }): boolean => (
   args.draftHasSketch || Boolean(args.workspaceSketchDataUrl)
 );
-
-type SeedVariationItem = {
-  id: string;
-  design: DesignRun['designs'][number] | null;
-  plannedTitle: string | null;
-  plannedPrompt: string | null;
-  index: number;
-};
 
 const stripGenericDesignSuffix = (title: string, branchIndex: number): string => (
   title.replace(new RegExp(`\\s*Design\\s*${branchIndex}\\s*$`, 'i'), '').trim()
@@ -90,6 +95,7 @@ export function WorkspaceCanvas({
   seedActions,
   plannerActions,
   pageActions,
+  imageActions,
   exportActions,
   connection,
   codexBridgeStatus,
@@ -110,6 +116,7 @@ export function WorkspaceCanvas({
   seedActions: SeedNodeActions;
   plannerActions: PlannerNodeActions;
   pageActions: PageNodeActions;
+  imageActions: DesignImageActions;
   exportActions: ExportNodeActions;
   connection: ConnectionState;
   codexBridgeStatus: CodexBridgeStatus | null;
@@ -130,6 +137,7 @@ export function WorkspaceCanvas({
   const [isSeedVariationSetHovered, setSeedVariationSetHovered] = React.useState(false);
   const [seedComposerCanvasHeight, setSeedComposerCanvasHeight] = React.useState(SKETCH_COMPOSER_DEFAULT_CANVAS_HEIGHT);
   const [hasCustomSeedComposerCanvasHeight, setHasCustomSeedComposerCanvasHeight] = React.useState(false);
+  const [shouldFocusFirstPageAfterPlan, setShouldFocusFirstPageAfterPlan] = React.useState(false);
   const seedRun = workspace?.seedRunId ? runs[workspace.seedRunId] ?? null : null;
   const isSeedRunActive = seedRun?.status === 'queued' || seedRun?.status === 'running';
   React.useEffect(() => {
@@ -139,37 +147,22 @@ export function WorkspaceCanvas({
   }, [draft.hasSketch, workspace?.sketchDataUrl]);
   const seedVariationItems = React.useMemo<SeedVariationItem[]>(() => {
     if (!seedRun) return [];
-    const plannedByBranch = new Map((seedRun.plannedDesigns ?? []).map((design) => [design.branchIndex, design]));
-    const items: SeedVariationItem[] = seedRun.designs.map((design, index) => {
-      const planned = plannedByBranch.get(design.branchIndex);
-      return {
-        id: design.id,
-        design,
-        plannedTitle: planned?.title ?? null,
-        plannedPrompt: planned?.prompt ?? null,
-        index,
-      };
+    return buildSeedVariationItems({
+      draftSeedVariationCount: draft.seedVariationCount,
+      isSeedRunActive,
+      seedRun,
+      workspaceSeedVariationCount: workspace?.seedVariationCount,
     });
-    if (!isSeedRunActive) return items;
-    const expected = Math.max(seedRun.batchSize, workspace?.seedVariationCount ?? draft.seedVariationCount);
-    for (let index = items.length; index < expected; index += 1) {
-      const planned = plannedByBranch.get(index + 1);
-      items.push({
-        id: `pending-${index + 1}`,
-        design: null,
-        plannedTitle: planned?.title ?? null,
-        plannedPrompt: planned?.prompt ?? null,
-        index,
-      });
-    }
-    return items;
   }, [draft.seedVariationCount, isSeedRunActive, seedRun, workspace?.seedVariationCount]);
-  const seedVariations = seedVariationItems.map((item) => ({ id: item.id, imageSize: imageSizeForRun(seedRun) }));
+  const seedVariations = React.useMemo(() => (
+    seedVariationItems.map((item) => ({ id: item.id, imageSize: imageSizeForRun(seedRun) }))
+  ), [seedRun, seedVariationItems]);
   const pages = workspace?.pages ?? [];
+  const showPlanner = Boolean(workspace?.plannerVisible);
   const isMobileCanvas = viewport.width < MOBILE_CANVAS_BREAKPOINT;
   const seedNodeWidth = resolveCreateSeedNodeWidth(viewport.width);
   const useSeedTextFirstLayout = isMobileCanvas
-    && (isSeedPromptFocused || (workspace?.prompt ?? draft.prompt).trim().length > 0)
+    && (isSeedPromptFocused || draft.prompt.trim().length > 0)
     && !draft.hasSketch
     && !hasCustomSeedComposerCanvasHeight;
   const effectiveSeedComposerCanvasHeight = useSeedTextFirstLayout
@@ -185,7 +178,7 @@ export function WorkspaceCanvas({
   const seedPromptHeight = CREATE_SEED_PROMPT_BASE_HEIGHT + (isSeedSketchInputOpen && useSeedTextFirstLayout
     ? Math.max(0, defaultSeedComposerDisplayHeight - openSeedComposerDisplayHeight)
     : 0);
-  const seedNodeHeight = Math.ceil(seedComposerDisplayHeight + seedPromptHeight + 220);
+  const seedNodeHeight = Math.ceil(seedComposerDisplayHeight + seedPromptHeight + CREATE_SEED_NODE_CHROME_HEIGHT);
   const seedVariationConnectorStartY = 68 + seedComposerDisplayHeight;
   const handleSeedCanvasHeightChange = React.useCallback((height: number) => {
     setSeedComposerCanvasHeight(normalizeSketchComposerCanvasHeight(height));
@@ -205,10 +198,6 @@ export function WorkspaceCanvas({
       closeEmptySeedSketchInput();
     }
   }, [closeEmptySeedSketchInput]);
-  const handleSeedCreate = React.useCallback(() => {
-    closeEmptySeedSketchInput();
-    seedActions.onCreateSeed();
-  }, [closeEmptySeedSketchInput, seedActions]);
   const handleSeedSketchClear = React.useCallback(() => {
     onInkChange(false);
     setSeedSketchInputOpen(false);
@@ -223,25 +212,69 @@ export function WorkspaceCanvas({
     }
   }, [selectedSeedDesignId]);
 
+  const sourceCount = workspace?.referenceDataUrls.length ?? draft.referenceCount;
+  const layoutPages = React.useMemo(() => pages.map((page) => {
+    const run = page.runId ? runs[page.runId] : null;
+    return {
+      id: page.id,
+      selectedVariationId: page.selectedVariationId,
+      variationsCollapsed: false,
+      variations: run?.designs.map((design) => ({ id: design.id, imageSize: imageSizeForRun(run) })) ?? [],
+    };
+  }), [pages, runs]);
+
   const layout = React.useMemo(() => buildCreateCanvasLayout({
     seedNodeHeight,
     seedNodeWidth,
     seedVariationConnectorStartY,
-    pages: pages.map((page) => {
-      const run = page.runId ? runs[page.runId] : null;
-        return {
-          id: page.id,
-          selectedVariationId: page.selectedVariationId,
-          variationsCollapsed: Boolean(page.selectedVariationId),
-          variations: run?.designs.map((design) => ({ id: design.id, imageSize: imageSizeForRun(run) })) ?? [],
-        };
-      }),
+    pages: layoutPages,
     seedVariations,
     selectedSeedVariationId: selectedSeedDesignId,
     seedVariationSetCollapsed: isSeedVariationSetCollapsed,
-    sourceCount: workspace?.referenceDataUrls.length ?? draft.referenceCount,
+    showPlanner,
+    sourceCount,
     showExport: false,
-  }), [draft.referenceCount, isSeedVariationSetCollapsed, pages, runs, seedNodeHeight, seedNodeWidth, seedVariationConnectorStartY, seedVariations, selectedSeedDesignId, workspace?.referenceDataUrls.length]);
+  }), [isSeedVariationSetCollapsed, layoutPages, seedNodeHeight, seedNodeWidth, seedVariationConnectorStartY, seedVariations, selectedSeedDesignId, showPlanner, sourceCount]);
+  const focusAreas = React.useMemo(() => buildCreateCanvasFocusAreas({
+    pages: layoutPages,
+    seedVariations,
+    seedVariationSetCollapsed: isSeedVariationSetCollapsed,
+    rects: layout.rects,
+    sourceCount,
+    shouldShowPlanner: showPlanner,
+    shouldShowExport: false,
+  }), [isSeedVariationSetCollapsed, layout.rects, layoutPages, seedVariations, showPlanner, sourceCount]);
+  const defaultFocusAreaId = seedVariationItems.some((item) => item.design)
+    ? CREATE_SEED_VARIATION_GROUP_ID
+    : CREATE_SEED_NODE_ID;
+  const {
+    cameraSettings: focusedAreaCameraSettings,
+    focusedAreaSnapshot,
+    handleCanvasAreaClick,
+    handleFocusStep,
+    requestFocusArea,
+  } = useWorkspaceCanvasFocus({
+    defaultFocusAreaId,
+    focusAreas,
+    isMobileCanvas,
+  });
+
+  const handleSeedCreate = React.useCallback(() => {
+    requestFocusArea(CREATE_SEED_VARIATION_GROUP_ID);
+    closeEmptySeedSketchInput();
+    seedActions.onCreateSeed();
+  }, [closeEmptySeedSketchInput, requestFocusArea, seedActions]);
+
+  React.useEffect(() => {
+    if (!shouldFocusFirstPageAfterPlan) return;
+    const firstPage = pages[0];
+    if (firstPage) {
+      requestFocusArea(createPageNodeId(firstPage.id));
+    } else {
+      requestFocusArea(CREATE_PLANNER_NODE_ID);
+    }
+    setShouldFocusFirstPageAfterPlan(false);
+  }, [pages, requestFocusArea, shouldFocusFirstPageAfterPlan]);
 
   const targetRects = React.useMemo(() => {
     const seedRect = layout.rects[CREATE_SEED_NODE_ID];
@@ -259,19 +292,42 @@ export function WorkspaceCanvas({
       seedRect,
       selectedSeedRect,
       isSeedRunActive ? firstSeedVariationRect : null,
+      showPlanner ? layout.rects[CREATE_PLANNER_NODE_ID] : null,
       pages.length > 0 ? layout.rects[createPageNodeId(pages[0]!.id)] : null,
     ].filter((rect): rect is NonNullable<typeof rect> => Boolean(rect));
-  }, [isMobileCanvas, isSeedRunActive, layout.rects, pages, seedVariationItems, selectedSeedDesignId]);
+  }, [isMobileCanvas, isSeedRunActive, layout.rects, pages, seedVariationItems, selectedSeedDesignId, showPlanner]);
+  const overviewRects = React.useMemo(() => Object.values(layout.rects), [layout.rects]);
 
+  const focusRect = focusedAreaSnapshot?.rect ?? null;
+  const fallbackCameraRects = focusRect ? null : targetRects;
   const targetCamera = React.useMemo(() => fitCameraToRects({
-    rects: targetRects.length ? targetRects : Object.values(layout.rects).slice(0, 1),
+    rects: focusRect ? [focusRect] : (fallbackCameraRects?.length ? fallbackCameraRects : overviewRects.slice(0, 1)),
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    padding: focusedAreaCameraSettings.padding,
+    minZoom: focusedAreaCameraSettings.minZoom,
+    maxZoom: focusedAreaCameraSettings.maxZoom,
+    expandMinZoomToFit: true,
+  }), [
+    fallbackCameraRects,
+    focusRect?.height,
+    focusRect?.width,
+    focusRect?.x,
+    focusRect?.y,
+    focusedAreaCameraSettings,
+    overviewRects,
+    viewport.height,
+    viewport.width,
+  ]);
+  const overviewCamera = React.useMemo(() => fitCameraToRects({
+    rects: overviewRects,
     viewportWidth: viewport.width,
     viewportHeight: viewport.height,
     padding: isMobileCanvas ? 20 : 82,
     minZoom: isMobileCanvas ? 0.2 : 0.24,
     maxZoom: isSeedRunActive ? 0.82 : isMobileCanvas ? 1.2 : 0.9,
     expandMinZoomToFit: true,
-  }), [isMobileCanvas, isSeedRunActive, layout.rects, targetRects, viewport.height, viewport.width]);
+  }), [isMobileCanvas, isSeedRunActive, overviewRects, viewport.height, viewport.width]);
 
   const sourceDataUrls = workspace?.referenceDataUrls ?? Array.from({ length: draft.referenceCount }, () => '');
 
@@ -279,16 +335,15 @@ export function WorkspaceCanvas({
     <>
       <CreateCameraStage
         targetCamera={targetCamera}
-        preserveUserCameraOnTargetChange
-        minZoom={Math.min(0.24, targetCamera.zoom)}
+        minZoom={Math.min(0.24, targetCamera.zoom, overviewCamera.zoom)}
         maxZoom={2.6}
         worldWidth={layout.worldWidth}
         worldHeight={layout.worldHeight}
         connectors={layout.connectors}
         connectorJunctions={layout.junctions}
         introStartedAt={SETTLED_CANVAS_INTRO_STARTED_AT_MS}
-        onHorizontalNavigate={() => undefined}
-        onCanvasClick={() => undefined}
+        onHorizontalNavigate={handleFocusStep}
+        onCanvasClick={handleCanvasAreaClick}
       >
       {layout.rects[CREATE_SEED_NODE_ID] ? (
         <SketchCanvasNode
@@ -298,26 +353,36 @@ export function WorkspaceCanvas({
           interactiveOnEnter
         >
           <CreateSeedNode
-            prompt={workspace?.prompt ?? draft.prompt}
+            prompt={draft.prompt}
             attachmentCount={workspace?.referenceDataUrls.length ?? draft.referenceCount}
             uploadError={null}
             runError={error}
             isUploading={false}
             isCreating={Boolean(seedRun && (seedRun.status === 'queued' || seedRun.status === 'running'))}
             title="Codex Design"
-            canCreate={!seedRun && (draft.prompt.trim().length > 0 || draft.hasSketch || draft.referenceCount > 0)}
-            createLabel={isSeedRunActive ? 'Creating designs' : seedRun ? 'Create again' : 'Create designs'}
+            canCreate={draft.prompt.trim().length > 0 || draft.hasSketch}
+            createLabel={isSeedRunActive ? 'Create new version' : seedRun ? 'Create again' : 'Create designs'}
             headerControls={(
               <SeedFilterControls
                 designCount={draft.seedVariationCount}
                 aspect={draft.aspect}
                 quality={draft.quality}
+                creativityMode={draft.creativityMode}
                 disabled={controlsDisabled}
                 onDesignCountChange={seedActions.setSeedVariationCount}
                 onAspectChange={seedActions.setAspect}
                 onQualityChange={seedActions.setQuality}
+                onCreativityModeChange={seedActions.setCreativityMode}
               />
             )}
+            runVersionControls={workspace ? (
+              <RunVersionMenu
+                label="Design version"
+                runIds={workspace.seedRunIds}
+                activeRunId={workspace.seedRunId}
+                onChange={seedActions.onSwitchSeedRun}
+              />
+            ) : null}
             hasSketchContent={draft.hasSketch}
             isSketchInputOpen={isSeedSketchInputOpen}
             initialImageUrl={workspace?.sketchDataUrl ?? null}
@@ -332,6 +397,7 @@ export function WorkspaceCanvas({
             onSketchClear={handleSeedSketchClear}
             onSketchInkChange={onInkChange}
             onSeedFilesSelected={(files) => {
+              requestFocusArea(CREATE_CANVAS_SOURCE_FOCUS_ID);
               const list = new DataTransfer();
               files.forEach((file) => list.items.add(file));
               seedActions.onReferenceFiles(list.files);
@@ -348,6 +414,7 @@ export function WorkspaceCanvas({
           <SketchCanvasAttachmentNode
             key={`source-${index}`}
             rect={rect}
+            focusAreaId={CREATE_CANVAS_SOURCE_FOCUS_ID}
             attachment={{
               id: `reference-${index + 1}`,
               name: `Reference ${index + 1}`,
@@ -373,7 +440,13 @@ export function WorkspaceCanvas({
           : 'default';
         if (!item.design) {
           return (
-            <SketchCanvasNode key={item.id} rect={rect} focusAreaId={createSeedVariationNodeId(item.id)} animationDelayMs={160 + (item.index * 50)} interactiveOnEnter>
+            <SketchCanvasNode
+              key={item.id}
+              rect={rect}
+              focusAreaId={isSeedVariationSetCollapsed ? CREATE_SEED_VARIATION_GROUP_ID : createSeedVariationNodeId(item.id)}
+              animationDelayMs={160 + (item.index * 50)}
+              interactiveOnEnter
+            >
               <CreatePendingVariationCanvasNodeLocal
                 run={seedRun}
                 title={item.plannedTitle || `Design ${item.index + 1}`}
@@ -382,6 +455,7 @@ export function WorkspaceCanvas({
           );
         }
         const openSeedVariationSet = () => {
+          requestFocusArea(CREATE_SEED_VARIATION_GROUP_ID);
           setSeedVariationSetExpanded(true);
           setSeedVariationSetHovered(false);
         };
@@ -389,7 +463,7 @@ export function WorkspaceCanvas({
           <SketchCanvasNode
             key={item.id}
             rect={rect}
-            focusAreaId={createSeedVariationNodeId(item.id)}
+            focusAreaId={isSeedVariationSetCollapsed ? CREATE_SEED_VARIATION_GROUP_ID : createSeedVariationNodeId(item.id)}
             animationDelayMs={isSeedVariationSetCollapsed ? 0 : 240 + (item.index * 60)}
             interactiveOnEnter={isSeedVariationSetCollapsed}
             className={isSeedVariationSetCollapsed ? (isSelected ? 'z-[34]' : 'z-[22]') : undefined}
@@ -427,14 +501,53 @@ export function WorkspaceCanvas({
                   openSeedVariationSet();
                   return;
                 }
+                requestFocusArea(CREATE_SEED_VARIATION_GROUP_ID);
                 setSeedVariationSetExpanded(false);
                 setSeedVariationSetHovered(false);
                 onSelectSeedDesign(item.design!.id);
+              }}
+              imageActions={{
+                onEditDesignImage: async (request) => {
+                  await imageActions.onEditDesignImage(seedRun.id, item.design!.id, request);
+                  requestFocusArea(createSeedVariationNodeId(item.design!.id));
+                },
+                onExtendDesignImage: async (request) => {
+                  await imageActions.onExtendDesignImage(seedRun.id, item.design!.id, request);
+                  setSeedVariationSetExpanded(true);
+                  setSeedVariationSetHovered(false);
+                  requestFocusArea(createSeedVariationNodeId(item.design!.id));
+                },
+                onSetActiveRevision: async (activeRevisionId) => {
+                  await imageActions.onSetActiveRevision(seedRun.id, item.design!.id, activeRevisionId);
+                  requestFocusArea(createSeedVariationNodeId(item.design!.id));
+                },
               }}
             />
           </SketchCanvasNode>
         );
       })}
+
+      {showPlanner && layout.rects[CREATE_PLANNER_NODE_ID] ? (
+        <SketchCanvasNode
+          rect={layout.rects[CREATE_PLANNER_NODE_ID]}
+          focusAreaId={CREATE_PLANNER_NODE_ID}
+          animationDelayMs={180}
+          interactiveOnEnter
+        >
+          <CreatePlannerNodeLocal
+            prompt={workspace?.plannerPrompt ?? ''}
+            canPlan={Boolean(workspace?.selectedSeedDesignId)}
+            isPlanning={isPlanning}
+            error={error}
+            onPromptChange={plannerActions.onUpdatePlannerPrompt}
+            onGeneratePlan={() => {
+              setShouldFocusFirstPageAfterPlan(true);
+              plannerActions.onPlanPages(workspace?.plannerPrompt ?? '');
+            }}
+            onFocusArea={() => requestFocusArea(CREATE_PLANNER_NODE_ID)}
+          />
+        </SketchCanvasNode>
+      ) : null}
 
       {pages.map((page) => {
         const rect = layout.rects[createPageNodeId(page.id)];
@@ -443,13 +556,14 @@ export function WorkspaceCanvas({
         return (
           <SketchCanvasNode key={page.id} rect={rect} focusAreaId={createPageNodeId(page.id)} animationDelayMs={180 + (page.order * 80)}>
             <CreatePageCanvasNodeLocal
-              index={page.order - 1}
               page={page}
-              run={run}
               isCreating={run?.status === 'queued' || run?.status === 'running'}
-              onTitleChange={(title) => pageActions.onUpdatePage(page.id, { title })}
               onPromptChange={(prompt) => pageActions.onUpdatePage(page.id, { prompt })}
-              onCreate={() => pageActions.onCreatePageRun(page.id)}
+              onCreate={() => {
+                requestFocusArea(createPageVariationGroupFocusId(page.id));
+                pageActions.onCreatePageRun(page.id);
+              }}
+              onSwitchRun={(runId) => pageActions.onSwitchPageRun(page.id, runId)}
             />
           </SketchCanvasNode>
         );
@@ -472,7 +586,24 @@ export function WorkspaceCanvas({
                 design={design}
                 selected={page.selectedVariationId === design.id}
                 label={design.title ? undefined : `Design ${index + 1}`}
-                onSelect={() => onSelectPageVariation(page.id, design.id)}
+                onSelect={() => {
+                  requestFocusArea(createPageVariationGroupFocusId(page.id));
+                  onSelectPageVariation(page.id, design.id);
+                }}
+                imageActions={{
+                  onEditDesignImage: async (request) => {
+                    await imageActions.onEditDesignImage(run.id, design.id, request);
+                    requestFocusArea(createVariationNodeId(page.id, design.id));
+                  },
+                  onExtendDesignImage: async (request) => {
+                    await imageActions.onExtendDesignImage(run.id, design.id, request);
+                    requestFocusArea(createVariationNodeId(page.id, design.id));
+                  },
+                  onSetActiveRevision: async (activeRevisionId) => {
+                    await imageActions.onSetActiveRevision(run.id, design.id, activeRevisionId);
+                    requestFocusArea(createVariationNodeId(page.id, design.id));
+                  },
+                }}
               />
             </SketchCanvasNode>
           );
@@ -491,7 +622,10 @@ export function WorkspaceCanvas({
         busyPageId={busyHandoverPageId}
         planner={{
           isPlanning,
-          onPlanPages: plannerActions.onPlanPages,
+          onShowPlanner: () => {
+            plannerActions.onShowPlanner();
+            requestFocusArea(CREATE_PLANNER_NODE_ID);
+          },
         }}
       />
     </>

@@ -32,18 +32,22 @@ export const createWorkspaceAndSeedRun = async (
   userMessage: string;
   workspace: CreateWorkspaceResponse['workspace'];
 }> => {
+  const seedInput = {
+    ...input,
+    seedVariationCount: input.seedVariationCount ?? 3,
+    referenceDataUrls: input.referenceDataUrls ?? [],
+    creativityMode: input.creativityMode ?? 'standard',
+  };
   const createResponse = await fetch(new URL('/api/workspaces', origin), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      ...input,
-      seedVariationCount: input.seedVariationCount ?? 3,
-      referenceDataUrls: input.referenceDataUrls ?? [],
-    }),
+    body: JSON.stringify(seedInput),
   });
   const { workspace } = await parseJson<CreateWorkspaceResponse>(createResponse);
   const seedResponse = await fetch(new URL(`/api/workspaces/${encodeURIComponent(workspace.id)}/seed-runs`, origin), {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(seedInput),
   });
   const seeded = await parseJson<CreateWorkspaceRunResponse>(seedResponse);
   const workspaceUrl = new URL(`/workspaces/${encodeURIComponent(workspace.id)}`, origin).toString();
@@ -61,12 +65,16 @@ export const waitForWorkspaceEvent = async (args: {
   workspaceId: string;
   events: CodexBridgeEventType[];
   timeoutMs: number;
+  afterEventId?: number;
   origin?: string;
 }): Promise<unknown> => {
   const origin = args.origin ?? localOrigin();
   const url = new URL(`/api/codex/workspaces/${encodeURIComponent(args.workspaceId)}/wait`, origin);
   url.searchParams.set('events', args.events.join(','));
   url.searchParams.set('timeoutMs', String(args.timeoutMs));
+  if (typeof args.afterEventId === 'number' && Number.isFinite(args.afterEventId) && args.afterEventId > 0) {
+    url.searchParams.set('afterEventId', String(args.afterEventId));
+  }
   const response = await fetch(url);
   return parseJson<unknown>(response);
 };

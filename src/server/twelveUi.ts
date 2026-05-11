@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { HandoverResult } from '../shared/types.js';
 import { runDir } from './runStore.js';
-import { serverConfig } from './config.js';
 import { getTwelveUiOrigin } from './connection.js';
+import { getTwelveUiApiKey } from './twelveUiAuthStore.js';
 
 type FetchLike = typeof fetch;
 
@@ -62,6 +62,46 @@ const readRunId = (body: unknown): string => {
   return runId;
 };
 
+const readLocalExtractRun = (body: unknown): Record<string, unknown> => {
+  const record = body && typeof body === 'object' && !Array.isArray(body)
+    ? body as Record<string, unknown>
+    : {};
+  const run = record.run && typeof record.run === 'object' && !Array.isArray(record.run)
+    ? record.run as Record<string, unknown>
+    : record;
+  return run;
+};
+
+const waitForLocalExtractCompletion = async (args: {
+  fetchImpl: FetchLike;
+  origin: string;
+  extractRunId: string;
+  timeoutMs?: number;
+}): Promise<unknown> => {
+  const deadline = Date.now() + (args.timeoutMs ?? 600_000);
+  let lastBody: unknown = null;
+  while (Date.now() < deadline) {
+    const { response, body } = await fetchJson(
+      args.fetchImpl,
+      new URL(`/api/design/extract-runs/${encodeURIComponent(args.extractRunId)}`, args.origin),
+      { headers: { 'x-session-token': devSessionToken() } },
+    );
+    lastBody = body;
+    if (!response.ok) {
+      throw new Error(`Local extract run ${args.extractRunId} status returned ${response.status}: ${JSON.stringify(body)}`);
+    }
+    const run = readLocalExtractRun(body);
+    const status = typeof run.status === 'string' ? run.status : '';
+    if (status === 'completed' || status === 'complete') return body;
+    if (status === 'failed') {
+      const error = typeof run.error === 'string' ? run.error : JSON.stringify(run.error ?? body);
+      throw new Error(`Local extract run ${args.extractRunId} failed: ${error}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  throw new Error(`Local extract run ${args.extractRunId} was not completed before timeout: ${JSON.stringify(lastBody)}`);
+};
+
 const waitForLocalExtractAsset = async (args: {
   fetchImpl: FetchLike;
   origin: string;
@@ -104,10 +144,11 @@ export const submitTwelveUiHandover = async (args: {
   fetchImpl?: FetchLike;
 }): Promise<HandoverResult> => {
   const origin = getTwelveUiOrigin();
-  if (!serverConfig.twelveUiApiKey && isLocalOrigin(origin)) {
+  const apiKey = getTwelveUiApiKey();
+  if (!apiKey && isLocalOrigin(origin)) {
     return submitLocalDesignExtract(args);
   }
-  if (!serverConfig.twelveUiApiKey) {
+  if (!apiKey) {
     throw new Error('TWELVE_UI_API_KEY is required to call the 12ui handover API.');
   }
   const fetchImpl = args.fetchImpl ?? fetch;
@@ -118,7 +159,7 @@ export const submitTwelveUiHandover = async (args: {
   const response = await fetchImpl(new URL('/api/v1/convert', origin), {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${serverConfig.twelveUiApiKey}`,
+      authorization: `Bearer ${apiKey}`,
     },
     body: form,
   });
@@ -160,11 +201,22 @@ export const submitLocalDesignExtract = async (args: {
     throw new Error(`Local 12ui extract failed with ${response.status}: ${JSON.stringify(body)}`);
   }
   const extractRunId = readRunId(body);
+  const completedBody = await waitForLocalExtractCompletion({
+    fetchImpl,
+    origin,
+    extractRunId,
+  });
   await waitForLocalExtractAsset({
     fetchImpl,
     origin,
     extractRunId,
     assetId: 'handover-html',
+  });
+  await waitForLocalExtractAsset({
+    fetchImpl,
+    origin,
+    extractRunId,
+    assetId: 'handover-md',
   });
 
   return {
@@ -178,6 +230,7 @@ export const submitLocalDesignExtract = async (args: {
       origin,
       extractRunId,
       createResponse: body,
+      completedResponse: completedBody,
     },
     createdAt: new Date().toISOString(),
   };
@@ -204,6 +257,32 @@ export const fetchLocalHandoverAsset = async (args: {
     headers: { 'x-session-token': devSessionToken() },
   });
   if (!response.ok) throw new Error(`Local handover asset ${assetId} returned ${response.status}.`);
+  return response;
+};
+
+const handoverAssetUrl = (handover: HandoverResult, asset: string): string | undefined => {
+  if (asset === 'handover.md') return handover.handoverUrl;
+  if (asset === 'handover.html') return handover.handoverHtmlUrl;
+  if (asset === 'handover.zip' || asset === 'zip') return handover.zipUrl;
+  return undefined;
+};
+
+export const fetchHandoverAsset = async (args: {
+  handover: HandoverResult;
+  asset: string;
+  fetchImpl?: FetchLike;
+}): Promise<Response> => {
+  const raw = args.handover.raw && typeof args.handover.raw === 'object' && !Array.isArray(args.handover.raw)
+    ? args.handover.raw as Record<string, unknown>
+    : {};
+  if (raw.mode === 'local-design-extract') return fetchLocalHandoverAsset(args);
+  const url = handoverAssetUrl(args.handover, args.asset);
+  if (!url) throw new Error(`Handover asset ${args.asset} is not available.`);
+  const headers: Record<string, string> = {};
+  const apiKey = getTwelveUiApiKey();
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+  const response = await (args.fetchImpl ?? fetch)(new URL(url, getTwelveUiOrigin()), { headers });
+  if (!response.ok) throw new Error(`Handover asset ${args.asset} returned ${response.status}.`);
   return response;
 };
 

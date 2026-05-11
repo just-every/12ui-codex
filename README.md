@@ -59,7 +59,7 @@ JSON
 codex-design wait --workspace <workspaceId> --event seed_design_selected --timeout-ms 1800000
 ```
 
-6. The user clicks `Handoff`.
+6. If 12ui is connected, HTML handover starts automatically after selection; otherwise the user connects 12ui or clicks `Handoff`.
 
 7. Codex waits for handover:
 
@@ -67,7 +67,7 @@ codex-design wait --workspace <workspaceId> --event seed_design_selected --timeo
 codex-design wait --workspace <workspaceId> --event handover_completed,handover_failed --timeout-ms 1800000
 ```
 
-8. Codex implements from the returned `handoverHtmlUrl`, `handoverUrl`, and `zipUrl`.
+8. Codex implements from the returned `handoverHtmlUrl`, `handoverUrl`, and `zipUrl` when present.
 
 Do not start from a blank page. The handover assets are the implementation source of truth.
 
@@ -80,7 +80,7 @@ For multi-page app or site work:
 3. Plan pages through the local workspace API or UI.
 4. Generate page variations.
 5. Wait for `page_variation_selected`.
-6. Wait for `handover_completed` after the user clicks `Handoff`.
+6. If 12ui is connected, HTML handover starts automatically after selection. Wait for `handover_completed`; otherwise the user connects 12ui or clicks `Handoff`.
 
 ## CLI commands
 
@@ -149,13 +149,14 @@ Returns persisted bridge events for recovery and debugging.
 - It reuses the remembered server if it is still alive.
 - If the remembered server is not alive, it scans for a free port.
 - The default scan range is `9971-9999`.
-- The remembered port is stored under `.runs/codex-design-server/server.json`.
+- The remembered port is stored under `~/.12ui/codex-design/server/codex-design-server/server.json`.
 
 Environment overrides:
 
 ```bash
 CODEX_12UI_PORT=9985 codex-design launch --json
 CODEX_12UI_PORT_RANGE=10000-10100 codex-design launch --json
+CODEX_12UI_DATA_DIR=/path/to/data codex-design launch --json
 ```
 
 ## Development

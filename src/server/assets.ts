@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runDir } from './runStore.js';
 
@@ -66,17 +66,50 @@ export const saveImageData = async (
   };
 };
 
+export const saveImageBuffer = async (
+  runId: string,
+  fileStem: string,
+  bytes: Buffer,
+  contentType = 'image/png',
+): Promise<{ assetPath: string; contentType: string; bytes: Buffer }> => {
+  const extension = extensionForContentType(contentType);
+  const relativePath = `assets/${fileStem}.${extension}`;
+  const absolutePath = path.join(runDir(runId), relativePath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeFile(absolutePath, bytes);
+  return {
+    assetPath: relativePath,
+    contentType,
+    bytes,
+  };
+};
+
 export const readRunAsset = async (
   runId: string,
   assetPath: string,
-): Promise<{ bytes: Buffer; contentType: string }> => {
+): Promise<{
+  bytes: Buffer;
+  contentLength: number;
+  contentType: string;
+  etag: string;
+  lastModified: string;
+}> => {
   const absolute = path.join(runDir(runId), assetPath);
-  const bytes = await readFile(absolute);
+  const [bytes, info] = await Promise.all([
+    readFile(absolute),
+    stat(absolute),
+  ]);
   const extension = path.extname(assetPath).toLowerCase();
   const contentType = extension === '.jpg' || extension === '.jpeg'
     ? 'image/jpeg'
     : extension === '.webp'
       ? 'image/webp'
       : 'image/png';
-  return { bytes, contentType };
+  return {
+    bytes,
+    contentLength: info.size,
+    contentType,
+    etag: `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`,
+    lastModified: info.mtime.toUTCString(),
+  };
 };

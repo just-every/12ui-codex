@@ -9,6 +9,7 @@ const request: CreateRunRequest = {
   batchSize: 1,
   aspect: 'portrait',
   quality: 'medium',
+  creativityMode: 'standard',
 };
 
 const run = await createRunRecord(request);

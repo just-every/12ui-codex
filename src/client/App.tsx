@@ -4,13 +4,17 @@ import type {
   CreateWorkspace,
   AppStatus,
   DesignAspect,
+  DesignCreativityMode,
   DesignQuality,
   DesignRun,
+  CreateWorkspaceSeedRunRequest,
   DirectDesignCount,
   LocalUiConnection,
 } from '../shared/types.js';
 import {
   createPageHandover,
+  createDesignImageEdit,
+  createDesignImageExtension,
   createSeedHandover,
   createPageRun,
   createSeedRun,
@@ -22,7 +26,12 @@ import {
   getWorkspace,
   planWorkspacePages,
   sendTextHandoff,
+  startTwelveUiConnect,
+  updateDesignActiveRevision,
+  updateActivePageRun,
+  updateActiveSeedRun,
   updateConnection,
+  updateWorkspacePlanner,
   updateSeedSelection,
   updateWorkspacePage,
 } from './api.js';
@@ -37,10 +46,14 @@ const isActiveRun = (run: DesignRun | undefined): boolean => (
 
 const runIdsForWorkspace = (workspace: CreateWorkspace | null): string[] => {
   if (!workspace) return [];
-  return [
+  return Array.from(new Set([
     workspace.seedRunId,
-    ...workspace.pages.map((page) => page.runId),
-  ].filter((runId): runId is string => Boolean(runId));
+    ...(workspace.seedRunIds ?? []),
+    ...workspace.pages.flatMap((page) => [
+      page.runId,
+      ...(page.runIds ?? []),
+    ]),
+  ].filter((runId): runId is string => Boolean(runId))));
 };
 
 const workspaceIdFromLocation = (): string | null => {
@@ -81,6 +94,7 @@ export const App = () => {
   const [seedVariationCount, setSeedVariationCount] = React.useState<DirectDesignCount>(3);
   const [aspect, setAspect] = React.useState<DesignAspect>('portrait');
   const [quality, setQuality] = React.useState<DesignQuality>('medium');
+  const [creativityMode, setCreativityMode] = React.useState<DesignCreativityMode>('standard');
   const [hasSketch, setHasSketch] = React.useState(false);
   const [referenceDataUrls, setReferenceDataUrls] = React.useState<string[]>([]);
   const [workspace, setWorkspace] = React.useState<CreateWorkspace | null>(null);
@@ -119,6 +133,19 @@ export const App = () => {
       if (cancelled) return;
       setConnection(nextConnection);
       setConnectionOrigin(nextConnection.origin);
+      if (nextConnection.auth?.source === 'local') {
+        setConnecting(true);
+        void updateConnection(nextConnection.origin)
+          .then((checkedConnection) => {
+            if (cancelled) return;
+            setConnection(checkedConnection);
+            setConnectionOrigin(checkedConnection.origin);
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            if (!cancelled) setConnecting(false);
+          });
+      }
     }).catch(() => undefined);
     return () => {
       cancelled = true;
@@ -137,6 +164,7 @@ export const App = () => {
         setSeedVariationCount(loadedWorkspace.seedVariationCount);
         setAspect(loadedWorkspace.aspect);
         setQuality(loadedWorkspace.quality);
+        setCreativityMode(loadedWorkspace.creativityMode);
         setReferenceDataUrls(loadedWorkspace.referenceDataUrls);
         setHasSketch(Boolean(loadedWorkspace.sketchDataUrl));
       })
@@ -214,17 +242,26 @@ export const App = () => {
     },
   });
 
-  const createWorkspaceIfNeeded = async (): Promise<CreateWorkspace> => {
-    if (workspace) return workspace;
+  const readSeedInput = async (): Promise<CreateWorkspaceSeedRunRequest> => {
     const sketchFile = await (sketchRef.current?.exportFile() ?? Promise.resolve(null));
     const sketchDataUrl = await fileToDataUrl(sketchFile);
-    const nextWorkspace = await createWorkspace({
+    return {
       prompt,
       sketchDataUrl,
       referenceDataUrls,
       seedVariationCount,
       aspect,
       quality,
+      creativityMode,
+    };
+  };
+
+  const createWorkspaceIfNeeded = async (
+    seedInput: CreateWorkspaceSeedRunRequest,
+  ): Promise<CreateWorkspace> => {
+    if (workspace) return workspace;
+    const nextWorkspace = await createWorkspace({
+      ...seedInput,
     });
     setWorkspace(nextWorkspace);
     updateWorkspaceUrl(nextWorkspace.id);
@@ -235,8 +272,9 @@ export const App = () => {
     setError(null);
     blurActiveElement();
     try {
-      const currentWorkspace = await createWorkspaceIfNeeded();
-      const result = await createSeedRun(currentWorkspace.id);
+      const seedInput = await readSeedInput();
+      const currentWorkspace = await createWorkspaceIfNeeded(seedInput);
+      const result = await createSeedRun(currentWorkspace.id, seedInput);
       setWorkspace(result.workspace);
       setRuns((current) => ({ ...current, [result.run.id]: result.run }));
     } catch (submitError) {
@@ -254,6 +292,16 @@ export const App = () => {
     }
   };
 
+  const switchSeedRun = async (runId: string): Promise<void> => {
+    if (!workspace) return;
+    setError(null);
+    try {
+      setWorkspace(await updateActiveSeedRun(workspace.id, { runId }));
+    } catch (switchError) {
+      setError(switchError instanceof Error ? switchError.message : 'Failed to switch seed run.');
+    }
+  };
+
   const submitPagePlan = async (pagePrompt?: string): Promise<void> => {
     if (!workspace) return;
     setError(null);
@@ -266,6 +314,35 @@ export const App = () => {
     } finally {
       setPlanning(false);
     }
+  };
+
+  const showPagePlanner = (): void => {
+    if (!workspace) return;
+    setError(null);
+    const workspaceId = workspace.id;
+    setWorkspace((current) => (
+      current?.id === workspaceId ? { ...current, plannerVisible: true } : current
+    ));
+    void updateWorkspacePlanner(workspaceId, { plannerVisible: true })
+      .then(setWorkspace)
+      .catch((plannerError) => {
+        setError(plannerError instanceof Error ? plannerError.message : 'Failed to show page planner.');
+        void getWorkspace(workspaceId).then(setWorkspace).catch(() => undefined);
+      });
+  };
+
+  const updatePlannerPrompt = (plannerPrompt: string): void => {
+    if (!workspace) return;
+    const workspaceId = workspace.id;
+    setWorkspace((current) => (
+      current?.id === workspaceId ? { ...current, plannerPrompt } : current
+    ));
+    void updateWorkspacePlanner(workspaceId, { plannerPrompt })
+      .then(setWorkspace)
+      .catch((plannerError) => {
+        setError(plannerError instanceof Error ? plannerError.message : 'Failed to update page planner.');
+        void getWorkspace(workspaceId).then(setWorkspace).catch(() => undefined);
+      });
   };
 
   const patchPage = async (
@@ -293,8 +370,63 @@ export const App = () => {
     }
   };
 
+  const switchPageRun = async (pageId: string, runId: string): Promise<void> => {
+    if (!workspace) return;
+    setError(null);
+    try {
+      setWorkspace(await updateActivePageRun(workspace.id, pageId, { runId }));
+    } catch (switchError) {
+      setError(switchError instanceof Error ? switchError.message : 'Failed to switch page run.');
+    }
+  };
+
   const selectPageVariation = (pageId: string, designId: string): void => {
     void patchPage(pageId, { selectedVariationId: designId });
+  };
+
+  const editDesignImage = async (
+    runId: string,
+    designId: string,
+    request: Parameters<typeof createDesignImageEdit>[2],
+  ): Promise<void> => {
+    setError(null);
+    try {
+      const result = await createDesignImageEdit(runId, designId, request);
+      setRuns((current) => ({ ...current, [result.run.id]: result.run }));
+    } catch (editError) {
+      setError(editError instanceof Error ? editError.message : 'Failed to edit design image.');
+      throw editError;
+    }
+  };
+
+  const extendDesignImage = async (
+    runId: string,
+    designId: string,
+    request: Parameters<typeof createDesignImageExtension>[2],
+  ): Promise<void> => {
+    setError(null);
+    try {
+      const result = await createDesignImageExtension(runId, designId, request);
+      setRuns((current) => ({ ...current, [result.run.id]: result.run }));
+    } catch (extensionError) {
+      setError(extensionError instanceof Error ? extensionError.message : 'Failed to extend design image.');
+      throw extensionError;
+    }
+  };
+
+  const setDesignActiveRevision = async (
+    runId: string,
+    designId: string,
+    activeRevisionId: string | null,
+  ): Promise<void> => {
+    setError(null);
+    try {
+      const result = await updateDesignActiveRevision(runId, designId, { activeRevisionId });
+      setRuns((current) => ({ ...current, [result.run.id]: result.run }));
+    } catch (revisionError) {
+      setError(revisionError instanceof Error ? revisionError.message : 'Failed to switch design revision.');
+      throw revisionError;
+    }
   };
 
   const submitPageHandover = async (pageId: string) => {
@@ -338,6 +470,12 @@ export const App = () => {
     setError(null);
     setConnecting(true);
     try {
+      const currentConnection = connection ?? await getConnection();
+      if (!currentConnection.auth?.configured) {
+        const started = await startTwelveUiConnect();
+        window.location.href = started.connectUrl;
+        return;
+      }
       setConnection(await updateConnection(connectionOrigin));
     } catch (connectionError) {
       setError(connectionError instanceof Error ? connectionError.message : 'Failed to connect to local 12ui UI.');
@@ -380,6 +518,7 @@ export const App = () => {
           seedVariationCount,
           aspect,
           quality,
+          creativityMode,
           hasSketch,
           referenceCount: referenceDataUrls.length,
         }}
@@ -388,9 +527,11 @@ export const App = () => {
           setSeedVariationCount,
           setAspect,
           setQuality,
+          setCreativityMode,
           onReferenceFiles: readReferenceFiles,
           onClearReferences: () => setReferenceDataUrls([]),
           onCreateSeed: submitSeedRun,
+          onSwitchSeedRun: switchSeedRun,
           onClearSketch: () => {
             sketchRef.current?.clear();
             setHasSketch(false);
@@ -398,12 +539,20 @@ export const App = () => {
         }}
         plannerActions={{
           onPlanPages: submitPagePlan,
+          onShowPlanner: showPagePlanner,
+          onUpdatePlannerPrompt: updatePlannerPrompt,
         }}
         pageActions={{
           onUpdatePage: (pageId, patch) => {
             void patchPage(pageId, patch);
           },
           onCreatePageRun: submitPageRun,
+          onSwitchPageRun: switchPageRun,
+        }}
+        imageActions={{
+          onEditDesignImage: editDesignImage,
+          onExtendDesignImage: extendDesignImage,
+          onSetActiveRevision: setDesignActiveRevision,
         }}
         exportActions={{
           onCreateSeedHandover: submitSeedHandover,

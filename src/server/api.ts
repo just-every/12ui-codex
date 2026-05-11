@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ViteDevServer } from 'vite';
 import type {
   CodexBridgeContextResponse,
   CodexBridgeEventType,
@@ -12,26 +13,38 @@ import type {
   CreateRunResponse,
   CreateWorkspaceResponse,
   CreateWorkspaceRunResponse,
+  DesignImageRevisionResponse,
   DirectCreateHandoverResponse,
+  HandoverResult,
   HandoverResponse,
+  TwelveUiConnectStartResponse,
+  UpdateDesignActiveRevisionResponse,
   WorkspaceHandoverResponse,
 } from '../shared/types.js';
+import { resolveDesignAssetPath } from '../shared/designImageRevision.js';
 import { projectRoot, serverConfig } from './config.js';
-import { readRun, createRunRecord, onRunChange, addRunEvent, addHandover } from './runStore.js';
+import { readRun, createRunRecord, onRunChange, addRunEvent, addHandover, updateDesign } from './runStore.js';
 import {
   parseCreateRunRequest,
   parseCreateWorkspaceRequest,
+  parseCreateWorkspaceSeedRunRequest,
+  parseDesignImageEditRequest,
+  parseDesignImageExtensionRequest,
   parseDesignId,
   parseDirectCreateHandoverRequest,
   parsePageId,
   parsePlanWorkspacePagesRequest,
+  parseUpdateDesignActiveRevisionRequest,
+  parseUpdateWorkspacePageRunRequest,
+  parseUpdateWorkspacePlannerRequest,
   parseUpdateWorkspacePageRequest,
+  parseUpdateWorkspaceSeedRunRequest,
   parseUpdateWorkspaceSeedSelectionRequest,
   parseWorkspaceId,
 } from './validation.js';
 import { startGeneration } from './generation.js';
 import { readRunAsset } from './assets.js';
-import { fetchLocalHandoverAsset, readLocalExtractRunId, submitTwelveUiHandover } from './twelveUi.js';
+import { fetchHandoverAsset, readLocalExtractRunId, submitTwelveUiHandover } from './twelveUi.js';
 import { checkConnection, getConnection } from './connection.js';
 import {
   emitCodexBridgeEvent,
@@ -47,10 +60,12 @@ import {
   onWorkspaceChange,
   patchWorkspacePage,
   readWorkspace,
-  setWorkspaceSeedHandover,
-  setWorkspacePageHandover,
+  setWorkspaceActivePageRun,
+  setWorkspaceActiveSeedRun,
+  setWorkspaceSeedInput,
   setWorkspacePageRun,
   setWorkspacePages,
+  setWorkspacePlanner,
   setWorkspaceSeedRun,
   setWorkspaceSeedSelection,
   setWorkspaceStatus,
@@ -59,10 +74,26 @@ import {
 import { planWorkspacePages } from './pagePlanner.js';
 import { buildPageRunRequest } from './pageGeneration.js';
 import { getAppStatus } from './appStatus.js';
+import { createDesignImageEdit, createDesignImageExtension } from './designImageOperations.js';
+import { createTwelveUiConnectRequest, finishTwelveUiConnect } from './twelveUiConnect.js';
+import { clearStoredTwelveUiAuth } from './twelveUiAuthStore.js';
+import { sendRunAsset } from './runAssetResponse.js';
+import {
+  createPageHandover,
+  createSeedHandover,
+  maybeStartPageHandover,
+  maybeStartSeedHandover,
+} from './handoverWorkflow.js';
 
 type ApiHandler = (request: IncomingMessage, response: ServerResponse) => Promise<boolean>;
 
 const clientDist = path.join(projectRoot, 'dist/client');
+const staticNoStoreHeaders = {
+  'cache-control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  pragma: 'no-cache',
+  expires: '0',
+} as const;
+let activeServer: Awaited<ReturnType<typeof createCodex12UiServer>> | null = null;
 
 const sendJson = (response: ServerResponse, status: number, body: unknown): void => {
   const payload = JSON.stringify(body);
@@ -75,7 +106,20 @@ const sendJson = (response: ServerResponse, status: number, body: unknown): void
 };
 
 const sendError = (response: ServerResponse, status: number, error: string): void => {
+  if (response.headersSent || response.writableEnded) {
+    if (!response.writableEnded) response.end();
+    return;
+  }
   sendJson(response, status, { error });
+};
+
+const sendHtml = (response: ServerResponse, status: number, html: string): void => {
+  response.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(html),
+  });
+  response.end(html);
 };
 
 const readJsonBody = async (request: IncomingMessage): Promise<unknown> => {
@@ -103,6 +147,10 @@ const parseHandoffTextRequest = (body: unknown): {
     selectedImages: Array.isArray(record.selectedImages) ? record.selectedImages : [],
   };
 };
+
+const runAssetUrl = (runId: string, assetPath: string): string => (
+  `/api/runs/${encodeURIComponent(runId)}/assets/${assetPath.split('/').map(encodeURIComponent).join('/')}`
+);
 
 const streamSseRun = async (
   runId: string,
@@ -215,13 +263,65 @@ const handleHandover = async (
     message: `Sending ${design.title} to 12ui Convert.`,
     progress: run.progress,
   });
+  const assetPath = resolveDesignAssetPath(design);
   const handover = await submitTwelveUiHandover({
     runId,
     designId,
-    assetPath: design.assetPath,
+    assetPath,
   });
   const nextRun = await addHandover(runId, handover);
   sendJson(response, 200, { handover, run: nextRun } satisfies HandoverResponse);
+};
+
+const handleDesignImageEdit = async (
+  response: ServerResponse,
+  runId: string,
+  designId: string,
+  body: unknown,
+): Promise<void> => {
+  const run = await readRun(runId);
+  const result = await createDesignImageEdit({
+    run,
+    designId,
+    request: parseDesignImageEditRequest(body),
+  });
+  sendJson(response, 201, result satisfies DesignImageRevisionResponse);
+};
+
+const handleDesignImageExtension = async (
+  response: ServerResponse,
+  runId: string,
+  designId: string,
+  body: unknown,
+): Promise<void> => {
+  const run = await readRun(runId);
+  const result = await createDesignImageExtension({
+    run,
+    designId,
+    request: parseDesignImageExtensionRequest(body),
+  });
+  sendJson(response, 201, result satisfies DesignImageRevisionResponse);
+};
+
+const handleDesignActiveRevision = async (
+  response: ServerResponse,
+  runId: string,
+  designId: string,
+  body: unknown,
+): Promise<void> => {
+  const { activeRevisionId } = parseUpdateDesignActiveRevisionRequest(body);
+  const run = await updateDesign(runId, designId, (design) => {
+    if (activeRevisionId && !(design.revisions ?? []).some((revision) => revision.id === activeRevisionId)) {
+      throw new Error('Active revision was not found.');
+    }
+    return {
+      ...design,
+      activeRevisionId,
+    };
+  });
+  const design = run.designs.find((entry) => entry.id === designId);
+  if (!design) throw new Error('Design not found.');
+  sendJson(response, 200, { run, design } satisfies UpdateDesignActiveRevisionResponse);
 };
 
 const handleCreateWorkspace = async (response: ServerResponse, body: unknown): Promise<void> => {
@@ -232,8 +332,10 @@ const handleCreateWorkspace = async (response: ServerResponse, body: unknown): P
 const handleSeedRun = async (
   response: ServerResponse,
   workspaceId: string,
+  body: unknown,
 ): Promise<void> => {
-  const workspace = await readWorkspace(workspaceId);
+  const seedInput = parseCreateWorkspaceSeedRunRequest(body);
+  const workspace = await setWorkspaceSeedInput(workspaceId, seedInput);
   const request = {
     prompt: workspace.prompt,
     sketchDataUrl: workspace.sketchDataUrl,
@@ -241,6 +343,7 @@ const handleSeedRun = async (
     batchSize: workspace.seedVariationCount,
     aspect: workspace.aspect,
     quality: workspace.quality,
+    creativityMode: workspace.creativityMode,
   };
   const run = await createRunRecord(request);
   await setWorkspaceSeedRun(workspaceId, run.id);
@@ -254,6 +357,24 @@ const handleSeedRun = async (
     workspace: await refreshWorkspace(workspaceId),
     run: await readRun(run.id),
   } satisfies CreateWorkspaceRunResponse);
+};
+
+const handleActiveSeedRun = async (
+  response: ServerResponse,
+  workspaceId: string,
+  body: unknown,
+): Promise<void> => {
+  const { runId } = parseUpdateWorkspaceSeedRunRequest(body);
+  const run = await readRun(runId);
+  await setWorkspaceActiveSeedRun(workspaceId, runId);
+  if (run.status === 'queued' || run.status === 'running') {
+    await setWorkspaceStatus(workspaceId, 'seed_running', null);
+  } else if (run.status === 'failed') {
+    await setWorkspaceStatus(workspaceId, 'failed', run.error ?? 'Seed generation failed.');
+  }
+  sendJson(response, 200, {
+    workspace: await refreshWorkspace(workspaceId),
+  } satisfies CreateWorkspaceResponse);
 };
 
 const handleSeedSelection = async (
@@ -279,10 +400,11 @@ const handleSeedSelection = async (
       designId: selectedDesign.id,
       title: selectedDesign.title,
       prompt: selectedDesign.prompt,
-      assetPath: selectedDesign.assetPath,
-      assetUrl: `/api/runs/${encodeURIComponent(run.id)}/assets/${selectedDesign.assetPath.split('/').map(encodeURIComponent).join('/')}`,
+      assetPath: resolveDesignAssetPath(selectedDesign),
+      assetUrl: runAssetUrl(run.id, resolveDesignAssetPath(selectedDesign)),
     },
   });
+  maybeStartSeedHandover(workspaceId);
   sendJson(response, 200, {
     workspace: nextWorkspace,
   } satisfies CreateWorkspaceResponse);
@@ -292,64 +414,7 @@ const handleSeedHandover = async (
   response: ServerResponse,
   workspaceId: string,
 ): Promise<void> => {
-  const workspace = await refreshWorkspace(workspaceId);
-  if (!workspace.seedRunId || !workspace.selectedSeedDesignId) {
-    throw new Error('Select a seed design before handover.');
-  }
-  const run = await readRun(workspace.seedRunId);
-  const design = run.designs.find((entry) => entry.id === workspace.selectedSeedDesignId);
-  if (!design) throw new Error('Selected seed design was not found.');
-  await emitCodexBridgeEvent({
-    workspaceId,
-    type: 'handover_started',
-    message: `Started handover for seed design: ${design.title}.`,
-    payload: {
-      runId: run.id,
-      designId: design.id,
-      title: design.title,
-      assetPath: design.assetPath,
-    },
-  });
-  try {
-    const handover = await submitTwelveUiHandover({
-      runId: run.id,
-      designId: design.id,
-      assetPath: design.assetPath,
-    });
-    await addHandover(run.id, handover);
-    const nextWorkspace = await setWorkspaceSeedHandover(workspaceId, handover);
-    await emitCodexBridgeEvent({
-      workspaceId,
-      type: 'handover_completed',
-      message: `Handover ready for seed design: ${design.title}.`,
-      payload: {
-        runId: run.id,
-        designId: design.id,
-        title: design.title,
-        handoverUrl: handover.handoverUrl,
-        handoverHtmlUrl: handover.handoverHtmlUrl,
-        zipUrl: handover.zipUrl,
-      },
-    });
-    sendJson(response, 200, {
-      workspace: nextWorkspace,
-      handover,
-    } satisfies WorkspaceHandoverResponse);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || 'Handover failed.');
-    await emitCodexBridgeEvent({
-      workspaceId,
-      type: 'handover_failed',
-      message: `Handover failed for seed design: ${message}`,
-      payload: {
-        runId: run.id,
-        designId: design.id,
-        title: design.title,
-        error: message,
-      },
-    });
-    throw error;
-  }
+  sendJson(response, 200, await createSeedHandover(workspaceId) satisfies WorkspaceHandoverResponse);
 };
 
 const handlePagePlan = async (
@@ -360,11 +425,16 @@ const handlePagePlan = async (
   const { pagePrompt } = parsePlanWorkspacePagesRequest(body);
   await setWorkspaceStatus(workspaceId, 'planning', null);
   try {
-    const workspace = await readWorkspace(workspaceId);
+    let workspace = await readWorkspace(workspaceId);
     if (!workspace.selectedSeedDesignId) {
       throw new Error('Select a seed design before planning pages.');
     }
-    const plannedPages = await planWorkspacePages(workspace, pagePrompt);
+    const effectivePagePrompt = pagePrompt ?? workspace.plannerPrompt;
+    workspace = await setWorkspacePlanner(workspaceId, {
+      plannerVisible: true,
+      plannerPrompt: effectivePagePrompt,
+    });
+    const plannedPages = await planWorkspacePages(workspace, effectivePagePrompt);
     const usedPageIds = new Set(workspace.pages.map((page) => page.id));
     const nextPages = plannedPages.map((page, index) => {
       let id = page.id;
@@ -399,6 +469,17 @@ const handlePagePlan = async (
   }
 };
 
+const handleUpdatePlanner = async (
+  response: ServerResponse,
+  workspaceId: string,
+  body: unknown,
+): Promise<void> => {
+  const patch = parseUpdateWorkspacePlannerRequest(body);
+  sendJson(response, 200, {
+    workspace: await setWorkspacePlanner(workspaceId, patch),
+  } satisfies CreateWorkspaceResponse);
+};
+
 const handleUpdatePage = async (
   response: ServerResponse,
   workspaceId: string,
@@ -420,6 +501,7 @@ const handleUpdatePage = async (
   const nextWorkspace = await patchWorkspacePage(workspaceId, pageId, {
     ...patch,
     ...(patch.selectedVariationId ? { status: 'ready' as const, error: null } : {}),
+    ...('selectedVariationId' in patch && page.handover?.designId !== patch.selectedVariationId ? { handover: null } : {}),
   });
   if (patch.selectedVariationId && page.runId && selectedDesign) {
     await emitCodexBridgeEvent({
@@ -433,10 +515,11 @@ const handleUpdatePage = async (
         designId: selectedDesign.id,
         title: selectedDesign.title,
         prompt: selectedDesign.prompt,
-        assetPath: selectedDesign.assetPath,
-        assetUrl: `/api/runs/${encodeURIComponent(page.runId)}/assets/${selectedDesign.assetPath.split('/').map(encodeURIComponent).join('/')}`,
+        assetPath: resolveDesignAssetPath(selectedDesign),
+        assetUrl: runAssetUrl(page.runId, resolveDesignAssetPath(selectedDesign)),
       },
     });
+    maybeStartPageHandover(workspaceId, pageId);
   }
   sendJson(response, 200, {
     workspace: nextWorkspace,
@@ -467,75 +550,31 @@ const handlePageRun = async (
   } satisfies CreateWorkspaceRunResponse);
 };
 
+const handleActivePageRun = async (
+  response: ServerResponse,
+  workspaceId: string,
+  pageId: string,
+  body: unknown,
+): Promise<void> => {
+  const { runId } = parseUpdateWorkspacePageRunRequest(body);
+  const run = await readRun(runId);
+  await setWorkspaceActivePageRun(workspaceId, pageId, runId);
+  if (run.status === 'queued' || run.status === 'running') {
+    await patchWorkspacePage(workspaceId, pageId, { status: 'running', error: null });
+  } else if (run.status === 'failed') {
+    await patchWorkspacePage(workspaceId, pageId, { status: 'failed', error: run.error ?? 'Page generation failed.' });
+  }
+  sendJson(response, 200, {
+    workspace: await refreshWorkspace(workspaceId),
+  } satisfies CreateWorkspaceResponse);
+};
+
 const handlePageHandover = async (
   response: ServerResponse,
   workspaceId: string,
   pageId: string,
 ): Promise<void> => {
-  const workspace = await refreshWorkspace(workspaceId);
-  const page = workspace.pages.find((entry) => entry.id === pageId);
-  if (!page) throw new Error('Workspace page not found.');
-  if (!page.runId || !page.selectedVariationId) throw new Error('Select a page variation before handover.');
-  const run = await readRun(page.runId);
-  const design = run.designs.find((entry) => entry.id === page.selectedVariationId);
-  if (!design) throw new Error('Selected page variation was not found.');
-  await emitCodexBridgeEvent({
-    workspaceId,
-    type: 'handover_started',
-    message: `Started handover for ${page.title}: ${design.title}.`,
-    payload: {
-      pageId,
-      pageTitle: page.title,
-      runId: run.id,
-      designId: design.id,
-      title: design.title,
-      assetPath: design.assetPath,
-    },
-  });
-  try {
-    const handover = await submitTwelveUiHandover({
-      runId: run.id,
-      designId: design.id,
-      assetPath: design.assetPath,
-    });
-    await addHandover(run.id, handover);
-    const nextWorkspace = await setWorkspacePageHandover(workspaceId, pageId, handover);
-    await emitCodexBridgeEvent({
-      workspaceId,
-      type: 'handover_completed',
-      message: `Handover ready for ${page.title}: ${design.title}.`,
-      payload: {
-        pageId,
-        pageTitle: page.title,
-        runId: run.id,
-        designId: design.id,
-        title: design.title,
-        handoverUrl: handover.handoverUrl,
-        handoverHtmlUrl: handover.handoverHtmlUrl,
-        zipUrl: handover.zipUrl,
-      },
-    });
-    sendJson(response, 200, {
-      workspace: nextWorkspace,
-      handover,
-    } satisfies WorkspaceHandoverResponse);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || 'Handover failed.');
-    await emitCodexBridgeEvent({
-      workspaceId,
-      type: 'handover_failed',
-      message: `Handover failed for ${page.title}: ${message}`,
-      payload: {
-        pageId,
-        pageTitle: page.title,
-        runId: run.id,
-        designId: design.id,
-        title: design.title,
-        error: message,
-      },
-    });
-    throw error;
-  }
+  sendJson(response, 200, await createPageHandover(workspaceId, pageId) satisfies WorkspaceHandoverResponse);
 };
 
 const parseCodexEventTypes = (url: URL): CodexBridgeEventType[] => {
@@ -553,6 +592,17 @@ const parseCodexEventTypes = (url: URL): CodexBridgeEventType[] => {
     'handover_failed',
   ]);
   return raw.filter((value): value is CodexBridgeEventType => allowed.has(value as CodexBridgeEventType));
+};
+
+const findLatestHandover = (
+  handovers: HandoverResult[],
+  designId: string,
+): HandoverResult | undefined => {
+  for (let index = handovers.length - 1; index >= 0; index -= 1) {
+    const handover = handovers[index];
+    if (handover?.designId === designId) return handover;
+  }
+  return undefined;
 };
 
 const handleCodexContext = async (
@@ -591,6 +641,42 @@ const handleTextHandoff = async (
 
 export const handleApiRequest: ApiHandler = async (request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
+  if (request.method === 'GET' && url.pathname === '/auth/12ui/callback') {
+    const requestId = url.searchParams.get('request')?.trim() ?? '';
+    const oneTimeToken = url.searchParams.get('oneTimeToken')?.trim()
+      || url.searchParams.get('ott')?.trim()
+      || url.searchParams.get('token')?.trim()
+      || '';
+    try {
+      if (!requestId) throw new Error('Missing connection request id.');
+      if (!oneTimeToken) throw new Error('Missing one-time token.');
+      await finishTwelveUiConnect({ requestId, oneTimeToken });
+      sendHtml(response, 200, [
+        '<!doctype html><html><head><meta charset="utf-8" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+        '<meta http-equiv="refresh" content="1; url=/" />',
+        '<title>12ui connected</title></head>',
+        '<body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f6f5f1;color:#111;">',
+        '<main style="max-width:420px;padding:28px;border-radius:18px;background:white;box-shadow:0 20px 80px rgba(0,0,0,.08);">',
+        '<h1 style="margin:0 0 8px;font-size:26px;">12ui connected</h1>',
+        '<p style="margin:0;color:rgba(0,0,0,.62);line-height:1.5;">You can close this tab, or wait to return to the local app.</p>',
+        '</main></body></html>',
+      ].join(''));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not connect 12ui.';
+      sendHtml(response, 400, [
+        '<!doctype html><html><head><meta charset="utf-8" />',
+        '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+        '<title>12ui connection failed</title></head>',
+        '<body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f6f5f1;color:#111;">',
+        '<main style="max-width:420px;padding:28px;border-radius:18px;background:white;box-shadow:0 20px 80px rgba(0,0,0,.08);">',
+        '<h1 style="margin:0 0 8px;font-size:26px;">Connection failed</h1>',
+        `<p style="margin:0;color:#7b2727;line-height:1.5;">${message.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char))}</p>`,
+        '</main></body></html>',
+      ].join(''));
+    }
+    return true;
+  }
   if (!url.pathname.startsWith('/api/')) return false;
 
   try {
@@ -632,7 +718,13 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
 
     const seedRunMatch = /^\/api\/workspaces\/([^/]+)\/seed-runs$/.exec(url.pathname);
     if (request.method === 'POST' && seedRunMatch) {
-      await handleSeedRun(response, parseWorkspaceId(seedRunMatch[1]));
+      await handleSeedRun(response, parseWorkspaceId(seedRunMatch[1]), await readJsonBody(request));
+      return true;
+    }
+
+    const activeSeedRunMatch = /^\/api\/workspaces\/([^/]+)\/seed-run$/.exec(url.pathname);
+    if (request.method === 'PATCH' && activeSeedRunMatch) {
+      await handleActiveSeedRun(response, parseWorkspaceId(activeSeedRunMatch[1]), await readJsonBody(request));
       return true;
     }
 
@@ -645,6 +737,12 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
     const pagePlanMatch = /^\/api\/workspaces\/([^/]+)\/page-plan$/.exec(url.pathname);
     if (request.method === 'POST' && pagePlanMatch) {
       await handlePagePlan(response, parseWorkspaceId(pagePlanMatch[1]), await readJsonBody(request));
+      return true;
+    }
+
+    const workspacePlannerMatch = /^\/api\/workspaces\/([^/]+)\/planner$/.exec(url.pathname);
+    if (request.method === 'PATCH' && workspacePlannerMatch) {
+      await handleUpdatePlanner(response, parseWorkspaceId(workspacePlannerMatch[1]), await readJsonBody(request));
       return true;
     }
 
@@ -671,6 +769,17 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
       return true;
     }
 
+    const activePageRunMatch = /^\/api\/workspaces\/([^/]+)\/pages\/([^/]+)\/run$/.exec(url.pathname);
+    if (request.method === 'PATCH' && activePageRunMatch) {
+      await handleActivePageRun(
+        response,
+        parseWorkspaceId(activePageRunMatch[1]),
+        parsePageId(activePageRunMatch[2]),
+        await readJsonBody(request),
+      );
+      return true;
+    }
+
     const pageHandoverMatch = /^\/api\/workspaces\/([^/]+)\/pages\/([^/]+)\/handover$/.exec(url.pathname);
     if (request.method === 'POST' && pageHandoverMatch) {
       await handlePageHandover(response, parseWorkspaceId(pageHandoverMatch[1]), parsePageId(pageHandoverMatch[2]));
@@ -679,6 +788,18 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/connection') {
       sendJson(response, 200, { connection: getConnection() } satisfies ConnectionResponse);
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/auth/12ui/connect/start') {
+      const start = createTwelveUiConnectRequest(request);
+      sendJson(response, 200, start satisfies TwelveUiConnectStartResponse);
+      return true;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/auth/12ui/disconnect') {
+      await clearStoredTwelveUiAuth();
+      sendJson(response, 200, { ok: true, connection: getConnection() });
       return true;
     }
 
@@ -737,10 +858,17 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
     if (request.method === 'GET' && codexWaitMatch) {
       const workspaceId = parseWorkspaceId(codexWaitMatch[1]);
       const timeoutMs = Math.max(1_000, Math.min(30 * 60_000, Number(url.searchParams.get('timeoutMs')) || 10 * 60_000));
+      const afterEventId = Number(url.searchParams.get('afterEventId') ?? url.searchParams.get('after-event-id') ?? 0);
       sendJson(
         response,
         200,
-        await waitForCodexBridgeEvent(workspaceId, parseCodexEventTypes(url), timeoutMs, request),
+        await waitForCodexBridgeEvent(
+          workspaceId,
+          parseCodexEventTypes(url),
+          timeoutMs,
+          request,
+          Number.isFinite(afterEventId) ? afterEventId : 0,
+        ),
       );
       return true;
     }
@@ -757,15 +885,43 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
       return true;
     }
 
+    const designEditMatch = /^\/api\/runs\/([^/]+)\/designs\/([^/]+)\/edits$/.exec(url.pathname);
+    if (request.method === 'POST' && designEditMatch) {
+      await handleDesignImageEdit(
+        response,
+        decodeURIComponent(designEditMatch[1]),
+        parseDesignId(decodeURIComponent(designEditMatch[2])),
+        await readJsonBody(request),
+      );
+      return true;
+    }
+
+    const designExtensionMatch = /^\/api\/runs\/([^/]+)\/designs\/([^/]+)\/extensions$/.exec(url.pathname);
+    if (request.method === 'POST' && designExtensionMatch) {
+      await handleDesignImageExtension(
+        response,
+        decodeURIComponent(designExtensionMatch[1]),
+        parseDesignId(decodeURIComponent(designExtensionMatch[2])),
+        await readJsonBody(request),
+      );
+      return true;
+    }
+
+    const designActiveRevisionMatch = /^\/api\/runs\/([^/]+)\/designs\/([^/]+)\/active-revision$/.exec(url.pathname);
+    if (request.method === 'PATCH' && designActiveRevisionMatch) {
+      await handleDesignActiveRevision(
+        response,
+        decodeURIComponent(designActiveRevisionMatch[1]),
+        parseDesignId(decodeURIComponent(designActiveRevisionMatch[2])),
+        await readJsonBody(request),
+      );
+      return true;
+    }
+
     const assetMatch = /^\/api\/runs\/([^/]+)\/assets\/(.+)$/.exec(url.pathname);
-    if (request.method === 'GET' && assetMatch) {
+    if ((request.method === 'GET' || request.method === 'HEAD') && assetMatch) {
       const asset = await readRunAsset(decodeURIComponent(assetMatch[1]), decodeURIComponent(assetMatch[2]));
-      response.writeHead(200, {
-        'content-type': asset.contentType,
-        'cache-control': 'no-store',
-        'content-length': asset.bytes.byteLength,
-      });
-      response.end(asset.bytes);
+      sendRunAsset(request, response, asset);
       return true;
     }
 
@@ -780,12 +936,12 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
       const run = await readRun(decodeURIComponent(handoverAssetMatch[1]));
       const designId = decodeURIComponent(handoverAssetMatch[2]);
       const asset = handoverAssetMatch[3] as 'handover.md' | 'handover.html';
-      const handover = run.handovers.find((entry) => entry.designId === designId);
+      const handover = findLatestHandover(run.handovers, designId);
       if (!handover) {
         sendError(response, 404, 'Handover not found.');
         return true;
       }
-      const assetResponse = await fetchLocalHandoverAsset({ handover, asset });
+      const assetResponse = await fetchHandoverAsset({ handover, asset });
       if (asset === 'handover.html') {
         const html = await assetResponse.text();
         const extractRunId = readLocalExtractRunId(handover);
@@ -815,12 +971,12 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
       const run = await readRun(decodeURIComponent(nestedHandoverAssetMatch[1]));
       const designId = decodeURIComponent(nestedHandoverAssetMatch[2]);
       const assetId = decodeURIComponent(nestedHandoverAssetMatch[3]);
-      const handover = run.handovers.find((entry) => entry.designId === designId);
+      const handover = findLatestHandover(run.handovers, designId);
       if (!handover) {
         sendError(response, 404, 'Handover not found.');
         return true;
       }
-      const assetResponse = await fetchLocalHandoverAsset({ handover, asset: assetId });
+      const assetResponse = await fetchHandoverAsset({ handover, asset: assetId });
       response.writeHead(200, {
         'content-type': assetResponse.headers.get('content-type') || 'application/octet-stream',
         'cache-control': 'no-store',
@@ -840,30 +996,66 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
 
 const serveStatic = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
   const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
-  const requestedPath = url.pathname === '/' ? '/index.html' : url.pathname;
-  const absolute = path.join(clientDist, path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, ''));
-  const filePath = await stat(absolute).then((info) => info.isFile() ? absolute : path.join(clientDist, 'index.html')).catch(() => path.join(clientDist, 'index.html'));
-  const extension = path.extname(filePath);
+  let decodedPathname = url.pathname;
+  try {
+    decodedPathname = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400, {
+      ...staticNoStoreHeaders,
+      'content-type': 'text/plain; charset=utf-8',
+    });
+    response.end('Invalid static path.');
+    return;
+  }
+  if (decodedPathname.split(/[\\/]+/).includes('..') || decodedPathname.includes('\0')) {
+    response.writeHead(400, {
+      ...staticNoStoreHeaders,
+      'content-type': 'text/plain; charset=utf-8',
+    });
+    response.end('Invalid static path.');
+    return;
+  }
+  const normalizedPathname = path.posix.normalize(decodedPathname === '/' ? '/index.html' : decodedPathname);
+  if (normalizedPathname.includes('\0')) {
+    response.writeHead(400, {
+      ...staticNoStoreHeaders,
+      'content-type': 'text/plain; charset=utf-8',
+    });
+    response.end('Invalid static path.');
+    return;
+  }
+  const relativePath = normalizedPathname.replace(/^\/+/, '');
+  const absolute = path.join(clientDist, relativePath);
+  const isAssetRequest = normalizedPathname.startsWith('/assets/');
+  const filePath = await stat(absolute)
+    .then((info) => info.isFile() ? absolute : null)
+    .catch(() => null);
+  if (!filePath && isAssetRequest) {
+    response.writeHead(404, {
+      ...staticNoStoreHeaders,
+      'content-type': 'text/plain; charset=utf-8',
+    });
+    response.end('Static asset not found.');
+    return;
+  }
+  const resolvedFilePath = filePath ?? path.join(clientDist, 'index.html');
+  const extension = path.extname(resolvedFilePath);
   const contentType = extension === '.js'
     ? 'text/javascript; charset=utf-8'
     : extension === '.css'
       ? 'text/css; charset=utf-8'
       : 'text/html; charset=utf-8';
-  response.writeHead(200, { 'content-type': contentType });
-  createReadStream(filePath).pipe(response);
+  response.writeHead(200, {
+    ...staticNoStoreHeaders,
+    'content-type': contentType,
+  });
+  createReadStream(resolvedFilePath).pipe(response);
 };
 
 export const createCodex12UiServer = async () => {
   const isProduction = process.env.NODE_ENV === 'production';
-  const vite = isProduction
-    ? null
-    : await import('vite').then(({ createServer: createViteServer }) => createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-      root: projectRoot,
-    }));
-
-  return createServer(async (request, response) => {
+  let vite: ViteDevServer | null = null;
+  const server = createServer(async (request, response) => {
     if (await handleApiRequest(request, response)) return;
     if (vite) {
       vite.middlewares(request, response, () => undefined);
@@ -871,13 +1063,29 @@ export const createCodex12UiServer = async () => {
     }
     await serveStatic(request, response);
   });
+  if (!isProduction) {
+    vite = await import('vite').then(({ createServer: createViteServer }) => createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: { server },
+      },
+      appType: 'spa',
+      root: projectRoot,
+    }));
+  }
+
+  return server;
 };
 
 export const listen = async (): Promise<void> => {
   const server = await createCodex12UiServer();
+  activeServer = server;
   server.listen(serverConfig.port, serverConfig.host, () => {
     console.log(`codex-12ui running at http://${serverConfig.host}:${serverConfig.port}`);
     console.log(`text model: ${serverConfig.textModel}`);
+    console.log(`text fallback model: ${serverConfig.textFallbackModel || '(none)'}`);
     console.log(`image model: ${serverConfig.imageModel}`);
+    console.log(`image prompt model: ${serverConfig.imagePromptModel}`);
+    console.log(`image prompt fallback models: ${serverConfig.imagePromptFallbackModels.join(', ') || '(none)'}`);
   });
 };

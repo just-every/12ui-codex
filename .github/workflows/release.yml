@@ -114,6 +114,13 @@ jobs:
           git commit -m "chore(release): @12ui/codex-design v${VERSION} [skip ci]"
           git tag "codex-design-v${VERSION}"
 
+      - name: Verify package contents
+        if: steps.should_publish.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json --ignore-scripts > pack.json
+          node -e 'const fs=require("node:fs");const pack=JSON.parse(fs.readFileSync("pack.json","utf8"))[0];const files=pack.files.map((entry)=>entry.path);const tests=files.filter((path)=>/\\.test\\.(js|jsx|mjs|cjs)$/.test(path));if(tests.length){console.error(`Package includes compiled tests:\\n${tests.join("\\n")}`);process.exit(1)}for(const required of ["dist/server/server/cli.js","dist/server/server/index.js","dist/client/index.html","README.md","package.json"]){if(!files.includes(required)){console.error(`Package is missing ${required}`);process.exit(1)}}'
+
       - name: Publish to npm
         if: steps.should_publish.outputs.publish == 'true'
         env:

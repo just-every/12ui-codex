@@ -1,7 +1,5 @@
 import path from 'node:path';
 import {
-  ensembleRequest,
-  ensembleResult,
   type AgentDefinition,
   type ResponseContent,
   type ResponseInput,
@@ -18,6 +16,7 @@ import { projectRoot, serverConfig } from './config.js';
 import { submitTwelveUiHandover } from './twelveUi.js';
 import { addHandover, addRunEvent, createRunRecord, readRun, runDir } from './runStore.js';
 import { startGeneration } from './generation.js';
+import { requestTextModelWithFallback } from './textModelRequest.js';
 
 type CandidateDesign = {
   candidateId: string;
@@ -51,6 +50,7 @@ const createCompletedRun = async (
     batchSize: request.designCount,
     aspect: request.aspect,
     quality: request.quality,
+    creativityMode: request.creativityMode,
   };
   const run = await createRunRecord(runRequest);
   await addRunEvent(run.id, {
@@ -105,7 +105,7 @@ export const pickDesignForHandover = async (
         'Pick the single generated interface image that should be converted to HTML by 12ui.',
         'Prioritize faithfulness to the user prompt and sketch, visual completeness, implementability, clear hierarchy, and avoiding illegible or broken UI.',
         `User prompt: ${request.prompt || '(sketch only)'}`,
-        `Aspect: ${request.aspect}. Quality: ${request.quality}.`,
+        `Aspect: ${request.aspect}. Quality: ${request.quality}. Creativity mode: ${request.creativityMode}.`,
         '',
         candidateSummary,
         '',
@@ -121,7 +121,6 @@ export const pickDesignForHandover = async (
   const messages: ResponseInput = [{ type: 'message', role: 'user', content }];
   const agent: AgentDefinition = {
     agent_id: 'codex-12ui-direct-picker',
-    model: serverConfig.textModel,
     cwd: projectRoot,
     instructions: 'You are selecting the best generated web interface image for conversion to HTML. Follow the JSON schema exactly.',
     modelSettings: {
@@ -129,9 +128,12 @@ export const pickDesignForHandover = async (
       json_schema: pickerSchema(candidates.map((candidate) => candidate.candidateId)),
     },
   };
-  const result = await ensembleResult(ensembleRequest(messages, agent));
-  if (result.error) throw new Error(result.error);
-  const parsed = JSON.parse(result.message) as { candidateId?: unknown; reason?: unknown };
+  const parsed = await requestTextModelWithFallback({
+    agent,
+    label: 'Direct workflow design picker',
+    messages,
+    parse: (message) => JSON.parse(message) as { candidateId?: unknown; reason?: unknown },
+  });
   const candidateId = typeof parsed.candidateId === 'string' ? parsed.candidateId : '';
   const selected = candidates.find((candidate) => candidate.candidateId === candidateId);
   if (!selected) throw new Error(`Picker selected unknown candidateId: ${candidateId}`);

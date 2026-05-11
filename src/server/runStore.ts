@@ -9,6 +9,7 @@ import type {
   RunStatus,
 } from '../shared/types.js';
 import { runsRoot, serverConfig } from './config.js';
+import { normalizeCreativityMode } from './validation.js';
 
 type RunPatch = Partial<Omit<DesignRun, 'id' | 'events' | 'createdAt'>>;
 
@@ -36,6 +37,7 @@ export const createRunRecord = async (args: {
   batchSize: number;
   aspect: DesignRun['aspect'];
   quality: DesignRun['quality'];
+  creativityMode: DesignRun['creativityMode'];
 }): Promise<DesignRun> => {
   await ensureRunsRoot();
   const id = randomUUID();
@@ -47,6 +49,7 @@ export const createRunRecord = async (args: {
     batchSize: args.batchSize,
     aspect: args.aspect,
     quality: args.quality,
+    creativityMode: args.creativityMode,
     textModel: serverConfig.textModel,
     imageModel: serverConfig.imageModel,
     progress: 0,
@@ -65,12 +68,17 @@ export const createRunRecord = async (args: {
 export const readRun = async (runId: string): Promise<DesignRun> => {
   const raw = await readFile(runJsonPath(runId), 'utf8');
   const run = JSON.parse(raw) as DesignRun;
-  if (Array.isArray(run.plannedDesigns)) return run;
+  const normalizedRun: DesignRun = {
+    ...run,
+    creativityMode: normalizeCreativityMode(run.creativityMode),
+  };
+  if (Array.isArray(normalizedRun.plannedDesigns)) return normalizedRun;
   try {
     const rawDesignPrompts = await readFile(path.join(runDir(runId), 'design-prompts.json'), 'utf8');
     const designPrompts = JSON.parse(rawDesignPrompts) as Array<{ branchIndex?: unknown; title?: unknown; prompt?: unknown }>;
     return {
       ...run,
+      creativityMode: normalizedRun.creativityMode,
       plannedDesigns: Array.isArray(designPrompts)
         ? designPrompts.map((designPrompt, index) => ({
           branchIndex: typeof designPrompt.branchIndex === 'number' ? designPrompt.branchIndex : index + 1,
@@ -85,6 +93,7 @@ export const readRun = async (runId: string): Promise<DesignRun> => {
       const branchPrompts = JSON.parse(rawBranchPrompts) as Array<{ title?: unknown; prompt?: unknown }>;
       return {
         ...run,
+        creativityMode: normalizedRun.creativityMode,
         plannedDesigns: Array.isArray(branchPrompts)
           ? branchPrompts.map((branch, index) => ({
             branchIndex: index + 1,
@@ -94,7 +103,7 @@ export const readRun = async (runId: string): Promise<DesignRun> => {
           : [],
       };
     } catch {
-      return { ...run, plannedDesigns: [] };
+      return { ...normalizedRun, plannedDesigns: [] };
     }
   }
 };
@@ -142,6 +151,23 @@ export const addDesign = async (runId: string, design: DesignOutput): Promise<De
   return withRunLock(runId, async () => {
     const run = await readRun(runId);
     return writeRun({ ...run, plannedDesigns: run.plannedDesigns ?? [], designs: [...run.designs, design] });
+  });
+};
+
+export const updateDesign = async (
+  runId: string,
+  designId: string,
+  update: (design: DesignOutput, run: DesignRun) => DesignOutput,
+): Promise<DesignRun> => {
+  return withRunLock(runId, async () => {
+    const run = await readRun(runId);
+    const designIndex = run.designs.findIndex((design) => design.id === designId);
+    if (designIndex < 0) {
+      throw new Error('Design not found.');
+    }
+    const nextDesigns = run.designs.slice();
+    nextDesigns[designIndex] = update(run.designs[designIndex]!, run);
+    return writeRun({ ...run, plannedDesigns: run.plannedDesigns ?? [], designs: nextDesigns });
   });
 };
 

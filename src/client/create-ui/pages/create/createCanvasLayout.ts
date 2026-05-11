@@ -7,13 +7,14 @@ import {
 import type { CanvasGraphLayout } from '../sketch-canvas/canvasGraphLayout';
 
 export const CREATE_SEED_NODE_ID = 'create-seed';
+export const CREATE_PLANNER_NODE_ID = 'create-planner';
 export const CREATE_EXPORT_NODE_ID = 'create-export';
 export const CREATE_SEED_VARIATION_GROUP_ID = 'create-seed-variations';
 const CREATE_VARIATION_COLUMNS = 3;
-const CREATE_VARIATION_NODE_WIDTH = 540;
-const CREATE_VARIATION_NODE_HEIGHT = 720;
+const CREATE_VARIATION_NODE_WIDTH = 648;
+const CREATE_VARIATION_NODE_HEIGHT = 864;
 const CREATE_VARIATION_COLUMN_GAP = 124;
-const CREATE_VARIATION_ROW_GAP = 124;
+const CREATE_VARIATION_ROW_GAP = 172;
 const CREATE_VARIATION_TOP_GAP = 192;
 const CREATE_VARIATION_STACK_PEEK_OFFSETS = [
   { x: -64, y: -38 },
@@ -22,7 +23,9 @@ const CREATE_VARIATION_STACK_PEEK_OFFSETS = [
   { x: 54, y: -30 },
 ] as const;
 export const CREATE_SEED_NODE_WIDTH = 980;
-export const CREATE_SEED_NODE_HEIGHT = 940;
+export const CREATE_SEED_NODE_HEIGHT = 360;
+const CREATE_PLANNER_NODE_WIDTH = 720;
+const CREATE_PLANNER_NODE_HEIGHT = 560;
 const CREATE_PAGE_NODE_WIDTH = 500;
 const CREATE_PAGE_NODE_HEIGHT = 294;
 const CREATE_EXPORT_NODE_WIDTH = 760;
@@ -177,6 +180,7 @@ const resolveVariationGroupStart = (args: {
 
 const resolveMainNodeStarts = (
   pages: readonly CreateCanvasPageLayoutInput[],
+  showPlanner: boolean,
   seedNodeWidth: number,
   seedNodeHeight: number,
   seedVariations: CreateCanvasVariationLayoutInput[],
@@ -214,11 +218,23 @@ const resolveMainNodeStarts = (
     ? resolveVariationNodeHeight(seedVariations.find((variation) => variation.id === seedVariationSet?.selectedVariationId))
     : 0;
   let previousFootprintRight = seedVariationStart
-      ? seedVariationStart.x + seedVariationSetWidth
+    ? seedVariationStart.x + seedVariationSetWidth
     : starts[CREATE_SEED_NODE_ID]!.x + seedNodeWidth;
-  const pageLaneBaseY = seedVariationStart
+  const seedLaneBaseY = CREATE_MAIN_START.y;
+  const selectedSeedVariationLaneBaseY = seedVariationStart
       ? seedVariationStart.y + ((selectedSeedVariationHeight - CREATE_PAGE_NODE_HEIGHT) / 2)
     : CREATE_MAIN_START.y;
+  let pageLaneBaseY = selectedSeedVariationLaneBaseY;
+  if (showPlanner) {
+    const plannerX = starts[CREATE_SEED_NODE_ID]!.x + seedNodeWidth + CREATE_MAIN_GAP;
+    const plannerY = seedLaneBaseY + ((seedNodeHeight - CREATE_PLANNER_NODE_HEIGHT) / 2);
+    starts[CREATE_PLANNER_NODE_ID] = {
+      x: plannerX,
+      y: plannerY,
+    };
+    previousFootprintRight = plannerX + CREATE_PLANNER_NODE_WIDTH;
+    pageLaneBaseY = plannerY + ((CREATE_PLANNER_NODE_HEIGHT - CREATE_PAGE_NODE_HEIGHT) / 2);
+  }
   for (const [index, page] of pages.entries()) {
     const footprint = resolvePageHorizontalFootprint(page);
     const pageX = previousFootprintRight + CREATE_MAIN_GAP + footprint.left;
@@ -303,6 +319,7 @@ export const buildCreateCanvasLayout = (args: {
   selectedSeedVariationId?: string | null;
   seedVariations?: CreateCanvasVariationLayoutInput[];
   showExport?: boolean;
+  showPlanner?: boolean;
   sourceCount?: number;
 }): CanvasGraphLayout => {
   const sourceCount = Math.max(0, Math.floor(args.sourceCount ?? 0));
@@ -310,6 +327,7 @@ export const buildCreateCanvasLayout = (args: {
   const seedNodeWidth = Math.max(1, Math.ceil(args.seedNodeWidth ?? CREATE_SEED_NODE_WIDTH));
   const seedNodeHeight = Math.max(CREATE_SEED_NODE_HEIGHT, Math.ceil(args.seedNodeHeight ?? CREATE_SEED_NODE_HEIGHT));
   const shouldShowExport = args.showExport ?? args.pages.length > 0;
+  const showPlanner = args.showPlanner ?? false;
   const plannerSourceSeedVariationId = shouldCollapseVariationSet({
     collapsed: args.seedVariationSetCollapsed,
     selectedVariationId: args.selectedSeedVariationId,
@@ -318,9 +336,10 @@ export const buildCreateCanvasLayout = (args: {
     ? args.selectedSeedVariationId ?? null
     : null;
   const firstPageSourceNodeId = plannerSourceSeedVariationId
-      ? createSeedVariationNodeId(plannerSourceSeedVariationId)
-      : CREATE_SEED_NODE_ID;
-  const mainNodeStarts = resolveMainNodeStarts(args.pages, seedNodeWidth, seedNodeHeight, seedVariations, {
+    ? createSeedVariationNodeId(plannerSourceSeedVariationId)
+    : CREATE_SEED_NODE_ID;
+  const plannerSourceNodeId = CREATE_SEED_NODE_ID;
+  const mainNodeStarts = resolveMainNodeStarts(args.pages, showPlanner, seedNodeWidth, seedNodeHeight, seedVariations, {
     collapsed: args.seedVariationSetCollapsed,
     selectedVariationId: args.selectedSeedVariationId,
   });
@@ -328,16 +347,23 @@ export const buildCreateCanvasLayout = (args: {
   const lastPageFootprint = lastPage ? resolvePageHorizontalFootprint(lastPage) : null;
   const exportAnchorNodeId = lastPage
     ? createPageNodeId(lastPage.id)
-    : CREATE_SEED_NODE_ID;
+    : showPlanner
+      ? CREATE_PLANNER_NODE_ID
+      : CREATE_SEED_NODE_ID;
   const exportAnchorStart = mainNodeStarts[exportAnchorNodeId];
   const exportAnchorWidth = lastPage
     ? lastPageFootprint?.right ?? CREATE_PAGE_NODE_WIDTH
-    : seedNodeWidth;
+    : showPlanner
+      ? CREATE_PLANNER_NODE_WIDTH
+      : seedNodeWidth;
   const exportAnchorHeight = lastPage
     ? CREATE_PAGE_NODE_HEIGHT
-    : seedNodeHeight;
+    : showPlanner
+      ? CREATE_PLANNER_NODE_HEIGHT
+      : seedNodeHeight;
   const nodes: CanvasGraphNodeInput[] = [
     { id: CREATE_SEED_NODE_ID, width: seedNodeWidth, height: seedNodeHeight },
+    ...(showPlanner ? [{ id: CREATE_PLANNER_NODE_ID, width: CREATE_PLANNER_NODE_WIDTH, height: CREATE_PLANNER_NODE_HEIGHT }] : []),
     ...Array.from({ length: sourceCount }, (_, index) => ({
       id: createSourceAttachmentNodeId(index),
       width: 128,
@@ -371,6 +397,12 @@ export const buildCreateCanvasLayout = (args: {
       direction: 'right' as const,
       start: mainNodeStarts[CREATE_SEED_NODE_ID],
     },
+    ...(showPlanner ? [{
+      id: 'create-planner-main',
+      nodeIds: [CREATE_PLANNER_NODE_ID],
+      direction: 'right' as const,
+      start: mainNodeStarts[CREATE_PLANNER_NODE_ID],
+    }] : []),
     ...args.pages.map((page) => ({
       id: `create-main-${page.id}`,
       nodeIds: [createPageNodeId(page.id)],
@@ -430,9 +462,21 @@ export const buildCreateCanvasLayout = (args: {
   ];
 
   const edges: CanvasGraphEdgeInput[] = [
+    ...(showPlanner ? [{
+      id: 'seed-to-planner',
+      fromNodeId: plannerSourceNodeId,
+      toNodeId: CREATE_PLANNER_NODE_ID,
+      fromEdge: 'right' as const,
+      toEdge: 'left' as const,
+      delayMs: 120,
+    }] : []),
     ...args.pages.map((page, index) => ({
-      id: index === 0 ? 'selected-design-to-page-1' : `page-${args.pages[index - 1]!.id}-to-${page.id}`,
-      fromNodeId: index === 0 ? firstPageSourceNodeId : createPageNodeId(args.pages[index - 1]!.id),
+      id: index === 0
+        ? showPlanner ? 'planner-to-page-1' : 'selected-design-to-page-1'
+        : `page-${args.pages[index - 1]!.id}-to-${page.id}`,
+      fromNodeId: index === 0
+        ? showPlanner ? CREATE_PLANNER_NODE_ID : firstPageSourceNodeId
+        : createPageNodeId(args.pages[index - 1]!.id),
       toNodeId: createPageNodeId(page.id),
       fromEdge: 'right' as const,
       toEdge: 'left' as const,
