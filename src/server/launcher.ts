@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectRoot, serverConfig } from './config.js';
 import { getStatus } from './cliHttp.js';
+import { launchServerEnv } from './launchEnv.js';
 import { chooseLaunchPort, originForPort, readRememberedPort, rememberPort } from './serverPort.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -53,11 +54,7 @@ export const launchServer = async (): Promise<{
     const child = spawn(command, args, {
       cwd: projectRoot,
       detached: true,
-      env: {
-        ...process.env,
-        CODEX_12UI_HOST: serverConfig.host,
-        CODEX_12UI_PORT: String(port),
-      },
+      env: launchServerEnv(entry, process.env, serverConfig.host, port),
       stdio: ['ignore', out.fd, err.fd],
     });
     child.unref();
