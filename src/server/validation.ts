@@ -158,6 +158,15 @@ export const parseDesignId = (value: unknown): string => {
   return designId;
 };
 
+
+export const parseRunId = (value: string): string => {
+  const runId = decodeURIComponent(value).trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(runId)) {
+    throw new Error('A valid run id is required.');
+  }
+  return runId;
+};
+
 export const parseWorkspaceId = (value: string): string => {
   const workspaceId = decodeURIComponent(value).trim();
   if (!/^[a-z0-9-]{8,80}$/i.test(workspaceId)) {

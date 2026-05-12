@@ -28,6 +28,7 @@ import {
   parseUpdateWorkspacePageRequest,
   parseUpdateWorkspaceSeedSelectionRequest,
   parseWorkspaceId,
+  parseRunId,
 } from './validation.js';
 import { startGeneration } from './generation.js';
 import { readRunAsset } from './assets.js';
@@ -747,19 +748,19 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
 
     const runMatch = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
     if (request.method === 'GET' && runMatch) {
-      sendJson(response, 200, { run: await readRun(decodeURIComponent(runMatch[1])) });
+      sendJson(response, 200, { run: await readRun(parseRunId(runMatch[1])) });
       return true;
     }
 
     const eventsMatch = /^\/api\/runs\/([^/]+)\/events$/.exec(url.pathname);
     if (request.method === 'GET' && eventsMatch) {
-      await streamSseRun(decodeURIComponent(eventsMatch[1]), request, response);
+      await streamSseRun(parseRunId(eventsMatch[1]), request, response);
       return true;
     }
 
     const assetMatch = /^\/api\/runs\/([^/]+)\/assets\/(.+)$/.exec(url.pathname);
     if (request.method === 'GET' && assetMatch) {
-      const asset = await readRunAsset(decodeURIComponent(assetMatch[1]), decodeURIComponent(assetMatch[2]));
+      const asset = await readRunAsset(parseRunId(assetMatch[1]), decodeURIComponent(assetMatch[2]));
       response.writeHead(200, {
         'content-type': asset.contentType,
         'cache-control': 'no-store',
@@ -771,13 +772,13 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
 
     const handoverMatch = /^\/api\/runs\/([^/]+)\/handover$/.exec(url.pathname);
     if (request.method === 'POST' && handoverMatch) {
-      await handleHandover(response, decodeURIComponent(handoverMatch[1]), await readJsonBody(request));
+      await handleHandover(response, parseRunId(handoverMatch[1]), await readJsonBody(request));
       return true;
     }
 
     const handoverAssetMatch = /^\/api\/runs\/([^/]+)\/handovers\/([^/]+)\/(handover\.(?:md|html))$/.exec(url.pathname);
     if (request.method === 'GET' && handoverAssetMatch) {
-      const run = await readRun(decodeURIComponent(handoverAssetMatch[1]));
+      const run = await readRun(parseRunId(handoverAssetMatch[1]));
       const designId = decodeURIComponent(handoverAssetMatch[2]);
       const asset = handoverAssetMatch[3] as 'handover.md' | 'handover.html';
       const handover = run.handovers.find((entry) => entry.designId === designId);
@@ -812,7 +813,7 @@ export const handleApiRequest: ApiHandler = async (request, response) => {
 
     const nestedHandoverAssetMatch = /^\/api\/runs\/([^/]+)\/handovers\/([^/]+)\/assets\/(.+)$/.exec(url.pathname);
     if (request.method === 'GET' && nestedHandoverAssetMatch) {
-      const run = await readRun(decodeURIComponent(nestedHandoverAssetMatch[1]));
+      const run = await readRun(parseRunId(nestedHandoverAssetMatch[1]));
       const designId = decodeURIComponent(nestedHandoverAssetMatch[2]);
       const assetId = decodeURIComponent(nestedHandoverAssetMatch[3]);
       const handover = run.handovers.find((entry) => entry.designId === designId);

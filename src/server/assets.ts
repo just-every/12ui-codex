@@ -66,13 +66,35 @@ export const saveImageData = async (
   };
 };
 
+const resolveRunAssetPath = (runId: string, assetPath: string): { absolute: string; relative: string } => {
+  const relative = assetPath.trim().replace(/^assets[\\/]+/, '');
+  const segments = relative.split(/[\\/]+/).filter(Boolean);
+  if (
+    !relative
+    || path.isAbsolute(relative)
+    || path.win32.isAbsolute(relative)
+    || segments.some((segment) => segment === '..' || segment === '.')
+  ) {
+    throw new Error('A valid run asset path is required.');
+  }
+
+  const assetRoot = path.resolve(runDir(runId), 'assets');
+  const absolute = path.resolve(assetRoot, ...segments);
+  const assetRootWithSeparator = `${assetRoot}${path.sep}`;
+  if (absolute !== assetRoot && !absolute.startsWith(assetRootWithSeparator)) {
+    throw new Error('A valid run asset path is required.');
+  }
+
+  return { absolute, relative: segments.join('/') };
+};
+
 export const readRunAsset = async (
   runId: string,
   assetPath: string,
 ): Promise<{ bytes: Buffer; contentType: string }> => {
-  const absolute = path.join(runDir(runId), assetPath);
+  const { absolute, relative } = resolveRunAssetPath(runId, assetPath);
   const bytes = await readFile(absolute);
-  const extension = path.extname(assetPath).toLowerCase();
+  const extension = path.extname(relative).toLowerCase();
   const contentType = extension === '.jpg' || extension === '.jpeg'
     ? 'image/jpeg'
     : extension === '.webp'

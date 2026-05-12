@@ -8,6 +8,7 @@ import {
   parseDirectCreateHandoverRequest,
   parsePlanWorkspacePagesRequest,
   parseDesignId,
+  parseRunId,
 } from './validation.js';
 
 describe('validation', () => {
@@ -76,6 +77,12 @@ describe('validation', () => {
   it('validates design ids', () => {
     expect(parseDesignId('design-1')).toBe('design-1');
     expect(() => parseDesignId('../design-1')).toThrow('A valid designId is required.');
+  });
+
+  it('validates run ids', () => {
+    expect(parseRunId('11111111-1111-4111-8111-111111111111')).toBe('11111111-1111-4111-8111-111111111111');
+    expect(() => parseRunId('x')).toThrow('A valid run id is required.');
+    expect(() => parseRunId('%2e%2e%2f%2e%2e%2fetc')).toThrow('A valid run id is required.');
   });
 
   it('parses create workspaces with seed variation count', () => {

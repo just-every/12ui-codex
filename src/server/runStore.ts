@@ -9,6 +9,7 @@ import type {
   RunStatus,
 } from '../shared/types.js';
 import { runsRoot, serverConfig } from './config.js';
+import { parseRunId } from './validation.js';
 
 type RunPatch = Partial<Omit<DesignRun, 'id' | 'events' | 'createdAt'>>;
 
@@ -24,7 +25,7 @@ const withRunLock = async <T,>(runId: string, operation: () => Promise<T>): Prom
   return next;
 };
 
-export const runDir = (runId: string): string => path.join(runsRoot, runId);
+export const runDir = (runId: string): string => path.join(runsRoot, parseRunId(runId));
 export const runJsonPath = (runId: string): string => path.join(runDir(runId), 'run.json');
 
 export const ensureRunsRoot = async (): Promise<void> => {
