@@ -52,10 +52,35 @@ export const readStoredTwelveUiAuth = (): TwelveUiStoredAuth | null => {
   }
 };
 
-export const getTwelveUiApiKey = (): string => {
+const normalizeAuthOrigin = (origin: string): string | null => {
+  try {
+    const url = new URL(origin.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    url.pathname = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+};
+
+export const isTwelveUiAuthOrigin = (storedOrigin: string, requestedOrigin: string): boolean => {
+  const normalizedStoredOrigin = normalizeAuthOrigin(storedOrigin);
+  const normalizedRequestedOrigin = normalizeAuthOrigin(requestedOrigin);
+  return Boolean(
+    normalizedStoredOrigin
+      && normalizedRequestedOrigin
+      && normalizedStoredOrigin === normalizedRequestedOrigin,
+  );
+};
+
+export const getTwelveUiApiKey = (origin: string): string => {
   const envKey = serverConfig.twelveUiApiKey.trim();
-  if (envKey) return envKey;
-  return readStoredTwelveUiAuth()?.apiKey ?? '';
+  if (envKey) return isTwelveUiAuthOrigin(serverConfig.twelveUiOrigin, origin) ? envKey : '';
+  const stored = readStoredTwelveUiAuth();
+  if (!stored || !isTwelveUiAuthOrigin(stored.origin, origin)) return '';
+  return stored.apiKey;
 };
 
 export const getTwelveUiAuthStatus = (): TwelveUiAuthStatus => {
