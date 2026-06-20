@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { HandoverResult } from '../shared/types.js';
 import { runDir } from './runStore.js';
 import { getTwelveUiOrigin } from './connection.js';
-import { getTwelveUiApiKey } from './twelveUiAuthStore.js';
+import { getTwelveUiApiKey, isTwelveUiAuthOrigin, readStoredTwelveUiAuth } from './twelveUiAuthStore.js';
 
 type FetchLike = typeof fetch;
 
@@ -31,6 +31,16 @@ const isLocalOrigin = (origin: string): boolean => {
 };
 
 const devSessionToken = (): string => process.env.DEV_SESSION_TOKEN?.trim() || 'devtoken';
+
+const readBoundTwelveUiApiKey = (origin: string): string => {
+  const apiKey = getTwelveUiApiKey(origin);
+  if (apiKey) return apiKey;
+  const storedAuth = readStoredTwelveUiAuth();
+  if (storedAuth && !isTwelveUiAuthOrigin(storedAuth.origin, origin)) {
+    throw new Error(`Stored 12ui authentication is bound to ${storedAuth.origin}; reconnect 12ui before handing over to ${origin}.`);
+  }
+  return '';
+};
 
 const localAssetPath = (runId: string, assetId: string): string => (
   `/api/design/extract-runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(assetId)}`
@@ -144,7 +154,7 @@ export const submitTwelveUiHandover = async (args: {
   fetchImpl?: FetchLike;
 }): Promise<HandoverResult> => {
   const origin = getTwelveUiOrigin();
-  const apiKey = getTwelveUiApiKey();
+  const apiKey = readBoundTwelveUiApiKey(origin);
   if (!apiKey && isLocalOrigin(origin)) {
     return submitLocalDesignExtract(args);
   }
@@ -278,10 +288,11 @@ export const fetchHandoverAsset = async (args: {
   if (raw.mode === 'local-design-extract') return fetchLocalHandoverAsset(args);
   const url = handoverAssetUrl(args.handover, args.asset);
   if (!url) throw new Error(`Handover asset ${args.asset} is not available.`);
+  const targetUrl = new URL(url, getTwelveUiOrigin());
   const headers: Record<string, string> = {};
-  const apiKey = getTwelveUiApiKey();
+  const apiKey = readBoundTwelveUiApiKey(targetUrl.origin);
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
-  const response = await (args.fetchImpl ?? fetch)(new URL(url, getTwelveUiOrigin()), { headers });
+  const response = await (args.fetchImpl ?? fetch)(targetUrl, { headers });
   if (!response.ok) throw new Error(`Handover asset ${args.asset} returned ${response.status}.`);
   return response;
 };
