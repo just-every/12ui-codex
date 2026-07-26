@@ -9,5 +9,6 @@ allowBuilds:
 
 overrides:
   "@babel/core": 7.29.6
+  shell-quote: 1.10.0
   "ws@^7": 7.5.11
   "ws@^8": 8.21.0
