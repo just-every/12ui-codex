@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="12ui Design">
-  <rect width="256" height="256" rx="48" fill="#0f172a"/>
-  <path d="M56 72h54v112H84V96H56V72Zm90 0h52v24h-39c-8 0-13 5-13 13s5 13 13 13h18c22 0 37 14 37 32s-16 30-39 30h-51v-24h48c9 0 15-5 15-12s-5-12-15-12h-18c-21 0-35-14-35-34s12-30 27-30Z" fill="#f8fafc"/>
-  <circle cx="196" cy="76" r="16" fill="#38bdf8"/>
-  <path d="M64 202h128" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
-</svg>

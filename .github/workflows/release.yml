@@ -1,70 +1,26 @@
-name: Release codex-design
+name: Release codex-design tombstone
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - src/**
-      - .agents/**
-      - plugins/**
-      - package.json
-      - pnpm-lock.yaml
-      - tsconfig*.json
-      - vite.config.ts
-      - vitest.config.ts
-      - .github/workflows/release.yml
   workflow_dispatch:
-    inputs:
-      version:
-        description: Version bump
-        required: true
-        default: patch
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-codex-design-${{ github.ref }}-${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[skip ci]') && 'skip' || 'main' }}
-  cancel-in-progress: true
+  group: release-codex-design-tombstone
+  cancel-in-progress: false
 
 jobs:
   release:
-    name: Publish @12ui/codex-design
+    name: Publish @12ui/codex-design 0.1.11
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]')
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Check whether to publish
-        id: should_publish
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.sha }}"
-          if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git diff --name-only "$BEFORE" "$AFTER" | grep -E '^(src/|.agents/|plugins/|package.json|pnpm-lock.yaml|tsconfig|vite.config.ts|vitest.config.ts|.github/workflows/release.yml)'; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -72,86 +28,41 @@ jobs:
           node-version: '20'
           registry-url: https://registry.npmjs.org
 
-      - name: Setup pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.12.4 --activate
+      - name: Verify fixed tombstone version
+        run: node -e 'const pkg=require("./package.json");if(pkg.version!=="0.1.11"){throw new Error(`Expected 0.1.11, got ${pkg.version}`)}'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Verify tombstone
+        run: npm run verify
 
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Test
-        run: pnpm run test
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Bump version, commit, and tag
-        id: version
-        if: steps.should_publish.outputs.publish == 'true'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${NPM_TOKEN:-}" ]; then
-            echo "NPM_TOKEN not set; cannot publish" >&2
-            exit 1
-          fi
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          BUMP="patch"
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            BUMP="${{ github.event.inputs.version }}"
-          fi
-          BUMP_KIND="$BUMP" node -e 'const fs=require("node:fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));const kind=process.env.BUMP_KIND||"patch";let [major,minor,patch]=pkg.version.split(".").map(Number);if(kind==="major"){major+=1;minor=0;patch=0}else if(kind==="minor"){minor+=1;patch=0}else{patch+=1}pkg.version=`${major}.${minor}.${patch}`;fs.writeFileSync("package.json",JSON.stringify(pkg,null,2)+"\n");const pluginPath="plugins/12ui-design/.codex-plugin/plugin.json";const plugin=JSON.parse(fs.readFileSync(pluginPath,"utf8"));plugin.version=pkg.version;fs.writeFileSync(pluginPath,JSON.stringify(plugin,null,2)+"\n");'
-          VERSION=$(node -p "require('./package.json').version")
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          git add package.json plugins/12ui-design/.codex-plugin/plugin.json
-          git commit -m "chore(release): @12ui/codex-design v${VERSION} [skip ci]"
-          git tag "codex-design-v${VERSION}"
-
-      - name: Verify package contents
-        if: steps.should_publish.outputs.publish == 'true'
+      - name: Verify npm package contents
         run: |
           set -euo pipefail
           npm pack --dry-run --json --ignore-scripts > pack.json
-          node -e 'const fs=require("node:fs");const pack=JSON.parse(fs.readFileSync("pack.json","utf8"))[0];const files=pack.files.map((entry)=>entry.path);const tests=files.filter((path)=>/\\.test\\.(js|jsx|mjs|cjs)$/.test(path));if(tests.length){console.error(`Package includes compiled tests:\\n${tests.join("\\n")}`);process.exit(1)}for(const required of ["dist/server/server/cli.js","dist/server/server/index.js","dist/client/index.html","README.md","package.json"]){if(!files.includes(required)){console.error(`Package is missing ${required}`);process.exit(1)}}'
+          node -e 'const fs=require("node:fs");const pack=JSON.parse(fs.readFileSync("pack.json","utf8"))[0];const actual=pack.files.map(({path})=>path).sort();const expected=["README.md","bin/codex-design.js","package.json"];if(JSON.stringify(actual)!==JSON.stringify(expected)){throw new Error(`Unexpected package files: ${actual.join(", ")}`)}'
 
       - name: Publish to npm
-        if: steps.should_publish.outputs.publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
 
-      - name: Push changes
-        if: steps.should_publish.outputs.publish == 'true'
+      - name: Tag tombstone
         run: |
-          git push origin main
-          git push origin --tags
+          git tag codex-design-v0.1.11
+          git push origin codex-design-v0.1.11
 
       - name: Create GitHub Release
-        if: steps.should_publish.outputs.publish == 'true'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: codex-design-v${{ env.VERSION }}
-          release_name: codex-design v${{ env.VERSION }}
+          tag_name: codex-design-v0.1.11
+          release_name: codex-design v0.1.11 retirement tombstone
           body: |
-            Released @12ui/codex-design@${{ env.VERSION }} to npm.
+            `@12ui/codex-design` has been retired.
 
-            Install with:
+            Migrate with:
             ```bash
-            npx -y @12ui/codex-design install
-            ```
-
-            Optional marketplace registration:
-            ```bash
-            codex plugin marketplace add just-every/12ui-codex
+            npx -y @12ui/design skill install
             ```
           draft: false
           prerelease: false

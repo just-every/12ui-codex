@@ -1,55 +1,28 @@
 {
   "name": "@12ui/codex-design",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "type": "module",
-  "description": "Local 12ui Codex Design app and Codex skill installer",
+  "description": "Retired package that directs users to the supported @12ui/design skill",
   "license": "MIT",
   "homepage": "https://github.com/just-every/12ui-codex#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/just-every/12ui-codex.git"
   },
-  "main": "dist/server/server/index.js",
   "bin": {
-    "codex-design": "dist/server/server/cli.js"
+    "codex-design": "bin/codex-design.js"
   },
   "files": [
-    "dist/**/*",
-    "package.json",
-    "README.md"
+    "bin/codex-design.js"
   ],
   "scripts": {
-    "dev": "tsx src/server/index.ts",
-    "start": "NODE_ENV=production node dist/server/server/index.js",
-    "build": "rm -rf dist/client dist/server && vite build && tsc -p tsconfig.server.json",
-    "prepack": "npm run build",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run",
-    "test:e2e": "playwright test",
-    "smoke:live": "tsx src/server/liveSmoke.ts",
-    "create:handover": "tsx src/server/directCreateHandoverCli.ts"
+    "build": "node --check bin/codex-design.js && node --check scripts/verify-package.mjs && node --check test/tombstone.test.js",
+    "test": "node --test test/tombstone.test.js",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify": "npm run build && npm test && npm run verify:package",
+    "prepack": "npm run verify"
   },
-  "dependencies": {
-    "@just-every/ensemble": "0.2.238",
-    "@tailwindcss/postcss": "^4.3.0",
-    "@vitejs/plugin-react": "^6.0.2",
-    "clsx": "^2.1.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-native": "^0.85.3",
-    "react-native-web": "^0.21.2",
-    "sharp": "^0.35.3",
-    "tailwind-merge": "^3.5.0",
-    "tailwindcss": "^4.3.0",
-    "vite": "^8.0.16"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.59.1",
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+  "engines": {
+    "node": ">=18"
   }
 }
