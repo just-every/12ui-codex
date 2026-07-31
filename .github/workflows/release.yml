@@ -2,6 +2,15 @@ name: Release codex-design tombstone
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Publish the tombstone or resume tag/release reconciliation after publication
+        required: true
+        default: publish
+        type: choice
+        options:
+          - publish
+          - resume-after-publish
 
 permissions:
   contents: write
@@ -22,6 +31,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Require default-branch dispatch
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_TYPE" == branch && "$GITHUB_REF_NAME" == "$DEFAULT_BRANCH" ]] || {
+            echo "Release must be dispatched from the default branch ($DEFAULT_BRANCH), not $GITHUB_REF." >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "Checkout does not match the dispatched commit $GITHUB_SHA." >&2
+            exit 1
+          }
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -29,40 +53,99 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Verify fixed tombstone version
-        run: node -e 'const pkg=require("./package.json");if(pkg.version!=="0.1.11"){throw new Error(`Expected 0.1.11, got ${pkg.version}`)}'
+        run: node -e 'const pkg=require("./package.json");if(pkg.version!=="0.1.11"){throw new Error("Expected 0.1.11, got "+pkg.version)}'
 
       - name: Verify tombstone
-        run: npm run verify
+        run: |
+          npm run verify
+          node --test test/release-workflow.test.js
 
       - name: Verify npm package contents
         run: |
           set -euo pipefail
           npm pack --dry-run --json --ignore-scripts > pack.json
-          node -e 'const fs=require("node:fs");const pack=JSON.parse(fs.readFileSync("pack.json","utf8"))[0];const actual=pack.files.map(({path})=>path).sort();const expected=["README.md","bin/codex-design.js","package.json"];if(JSON.stringify(actual)!==JSON.stringify(expected)){throw new Error(`Unexpected package files: ${actual.join(", ")}`)}'
+          node -e 'const fs=require("node:fs");const pack=JSON.parse(fs.readFileSync("pack.json","utf8"))[0];const actual=pack.files.map(({path})=>path).sort();const expected=["README.md","bin/codex-design.js","package.json"];if(JSON.stringify(actual)!==JSON.stringify(expected)){throw new Error("Unexpected package files: "+actual.join(", "))}'
 
-      - name: Publish to npm
+      - name: Require unpublished tombstone
+        if: inputs.mode == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view '@12ui/codex-design@0.1.11' version >/dev/null 2>&1; then
+            echo "@12ui/codex-design@0.1.11 is already public; rerun with mode=resume-after-publish." >&2
+            exit 1
+          fi
+
+      - name: Publish tombstone to npm
+        if: inputs.mode == 'publish'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
 
-      - name: Tag tombstone
+      - name: Verify exact public tombstone
+        run: node scripts/verify-published-tombstone.mjs
+
+      - name: Reconcile tombstone tag
+        shell: bash
         run: |
-          git tag codex-design-v0.1.11
-          git push origin codex-design-v0.1.11
+          set -euo pipefail
+          tag=codex-design-v0.1.11
+          expected_sha="$GITHUB_SHA"
 
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
+          if git rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
+            local_sha="$(git rev-list -n 1 "$tag")"
+            [[ "$local_sha" == "$expected_sha" ]] || {
+              echo "Local $tag points to $local_sha, expected $expected_sha." >&2
+              exit 1
+            }
+          else
+            git tag "$tag" "$expected_sha"
+          fi
+
+          remote_sha="$(git ls-remote --tags origin "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
+          if [[ -z "$remote_sha" ]]; then
+            remote_sha="$(git ls-remote --tags origin "refs/tags/$tag" | awk 'NR == 1 { print $1 }')"
+          fi
+          if [[ -n "$remote_sha" ]]; then
+            [[ "$remote_sha" == "$expected_sha" ]] || {
+              echo "Remote $tag points to $remote_sha, expected $expected_sha." >&2
+              exit 1
+            }
+          else
+            git push origin "refs/tags/$tag"
+          fi
+
+      - name: Reconcile GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: codex-design-v0.1.11
-          release_name: codex-design v0.1.11 retirement tombstone
-          body: |
-            `@12ui/codex-design` has been retired.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=codex-design-v0.1.11
+          title='codex-design v0.1.11 retirement tombstone'
+          notes='.github/codex-design-v0.1.11-release-notes.md'
+          release_json="$RUNNER_TEMP/codex-design-v0.1.11-release.json"
+          release_error="$RUNNER_TEMP/codex-design-v0.1.11-release.err"
 
-            Migrate with:
-            ```bash
-            npx -y @12ui/design skill install
-            ```
-          draft: false
-          prerelease: false
+          if gh api \
+            "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            > "$release_json" 2> "$release_error"; then
+            RELEASE_JSON="$release_json" RELEASE_NOTES="$notes" RELEASE_TITLE="$title" node <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const release = JSON.parse(fs.readFileSync(process.env.RELEASE_JSON, 'utf8'));
+          const expectedBody = fs.readFileSync(process.env.RELEASE_NOTES, 'utf8').trim();
+          assert.equal(release.name, process.env.RELEASE_TITLE);
+          assert.equal(release.draft, false);
+          assert.equal(release.prerelease, false);
+          assert.equal(release.body.trim(), expectedBody);
+          NODE
+          elif grep -q 'HTTP 404' "$release_error"; then
+            gh release create "$tag" \
+              --title "$title" \
+              --notes-file "$notes" \
+              --verify-tag
+          else
+            cat "$release_error" >&2
+            exit 1
+          fi
